@@ -1,0 +1,666 @@
+/* DEBUG toggle */
+#define DEBUG 1
+/**
+ * @file main.cpp
+ * @remarks uSonicTimer
+ * @author Kevin Murphy (https://www.SomerledDesign.com)
+ * @brief an addition to an old, inexpensive Ultrasonic cleaner to include heating and timing
+ * @version 0.2
+ * @date 02/10/23
+ *
+ * @copyright Copyright (c) 2023 Somerled Design, LLC in Kevin Murphy
+ *
+ *                      GNU GENERAL PUBLIC LICENSE
+ *   This program is free software : you can redistribute it and/or modify
+ *   it under the terms of the GNU General Public License as published by
+ *   the Free Software Foundation, either version 3 of the License, or
+ *   (at your option) any later version.
+ *
+ *   This program is distributed in the hope that it will be useful,
+ *   but WITHOUT ANY WARRANTY; without even the implied warranty of
+ *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ *   GNU General Public License for more details.
+ *
+ *   You should have received a copy of the GNU General Public License
+ *   along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ *
+ *
+ *   This code is currently maintained for and compiled with Arduino 1.8.x.
+ *   Your mileage may vary with other versions.
+ *
+ *   ATTENTION: LIBRARY FILES MUST BE PUT IN LIBRARIES DIRECTORIES AND NOT THE INO SKETCH DIRECTORY !!!!
+ *
+ *   FOR EXAMPLE:
+ *   tiny4kOLED.h, tiny4kOLED.cpp ------------------------>   \Arduino\Sketchbook\libraries\tiny4kOLED\
+ *
+ *   Version History -
+ *
+ *   .100 - 01/16/22 - A work in progress
+ *   .200 - 01/29/22 - rewrite with u8g2lib as display driver
+ *
+ *
+ * DISCLAIMER:
+ *   With this design, including both the hardware & software I offer no guarantee that it is bug
+ *   free or reliable. So, if you decide to build one and you have problems or issues and/or causes
+ *   damage/harm to you, others or property then you are on your own. This work is experimental.
+ *
+ */
+
+/*
+ *  Required I/O:
+ *    SPI Nokia 5110
+ *      Func          Non i/o     i/o
+ *     =====================================
+ *      RESET          RST
+ *      CS             LOW
+ *      D/C                        D4
+ *      DIN                        D7(MOSI)
+ *      CLK                        D5(SCLK)
+ *      VCC            3V3
+ *      BL                         D6(MISO)  Backlight PWM
+ *
+ *    Rotary Enco     der
+ *      Func          Non i/o     i/o
+ *     =====================================
+ *      ENC_A                      D0
+ *      ENC_B                      A0
+ *      BUTTON                     D8
+ *
+ *    Relays
+ *      Func          Non i/o     i/o
+ *     =====================================
+ *      TEMP                        D1
+ *      TRNSDCR                     D2
+ *
+ *    Dallas Temp Sensor (DS18B20)
+ *      Func          Non i/o     i/o
+ *     =====================================
+ *      ONE_WIRE_BUS              D3
+ */
+
+// Still required?
+#include <Arduino.h>
+
+//Rotary Endcoder
+#include <ESPRotary.h>
+#include <Button2.h>
+
+// Drawing the Display with rectangles and circles and text, oh my
+#include <U8g2lib.h>
+
+// The Temperature sensor
+#include <DallasTemperature.h>
+
+// NTP Time to set RTC
+#include <NTPtimeESP.h>
+#include <sntp.h>
+
+#if DEBUG == 1  // DEBUG START
+#define beginDebug(x) Serial.begin(x)
+#define debug(x) Serial.print(x)
+#define debugln(x) Serial.println(x)
+#define DEBUG_BAUD 9600
+#else
+#define beginDebug(x)
+#define debug(x)
+#define debugln(x)
+#endif // END DEBUG
+
+#define FONT_1 u8g2_font_tinytim_tn
+#define FONT_2 u8g2_font_luBS19_tr
+#define FONT_3 u8g2_font_5x7_tf
+
+//NTPtime g_NTPus("us.pool.ntp.org");     // Choose server pool as required
+char const  *ssid = "REDACTED";                // Set your WiFi SSID
+char const  *password = "REDACTED";      // Set your WiFi password
+
+
+
+/* pins
+ *          $$$$$$$\  $$\
+ *          $$  __$$\ \__|
+ *          $$ |  $$ |$$\ $$$$$$$\   $$$$$$$\
+ *          $$$$$$$  |$$ |$$  __$$\ $$  _____|
+ *          $$  ____/ $$ |$$ |  $$ |\$$$$$$\
+ *          $$ |      $$ |$$ |  $$ | \____$$\
+ *          $$ |      $$ |$$ |  $$ |$$$$$$$  |
+ *          \__|      \__|\__|  \__|\_______/
+ */
+
+// Relays
+// Best to use GPIO 4 and 5 for relays
+#define TRNSDCR_RLY_PIN D1    /*GPIO5*/
+#define HEATER_RLY_PIN  D2    /*GPIO4*/
+
+// Temp sensor data bus
+#define ONE_WIRE_BUS D3 /*GPIO0*/
+
+// NOKIA 5110
+// #define RST_PIN         <-Connect to Reset according to adafruit https://learn.adafruit.com/nokia-5110-3310-monochrome-lcd/wiring-fewer-pins
+// #define CS_PIN          <-Connect to Ground according to adafruit
+#define DC_PIN          D4 /*GPIO2*/
+// #define CLK_PIN        D5 /*GPIO14*/// This should all be handled in the U8G2 class for HW SPI
+#define BACKLIGHT_PIN D6 /*GPIO12*/
+// #define DIN_PIN        D7 /*GPIO13*/// This should all be handled in the U8G2 class for HW SPI
+
+// Rotary Encoder ky-040
+#define ENC_A D0 /*GPIO16*/
+#define ENC_B A0 /*ADC0*/
+#define ENC_BUTTON D8 /*GPIO15*/
+
+// Status LED
+// TODO: maybe use the backlight as a Status?  Pulsing, Flashing, Steady, Dim?
+// #define STATUS_LED_PIN 9
+// bool statusLedOn = false;
+
+// Menu stuff
+int g_menuitem = 1;
+
+int g_frame = 1;
+int g_g_page = 1;
+int g_lastMenuItem = 1;
+
+String g_menuItem1 = "Contrast";
+String g_menuItem2 = "Set Temp";
+String g_menuItem3 = "Set Timer";
+
+boolean backlight = true;
+int contrast = 60;
+int temp = 150;
+int timer = 10;
+
+boolean up = false;
+boolean down = false;
+boolean middle = false;
+
+ESPRotary g_r;
+Button2 g_b;
+
+
+// instantiations
+
+U8G2_PCD8544_84X48_F_4W_HW_SPI g_lcd(U8G2_R0, /* cs=*/D3, /* dc=*/D4, /* reset=*/0); // Nokia 5110 Display hardware defined reset is connected to rst on board
+
+// Temp Sensor Data Bus
+//                                   0x28, 0xFF, 0x57, 0x3F, 0x01, 0x16, 0x01, 0xED
+// TODO: is this the correct address
+DeviceAddress thermometerAddress = {0x28, 0xFF, 0x57, 0x3F, 0x01, 0x16, 0x01, 0xED}; // custom array type to hold 64 bit device address
+
+
+// Timer settings
+// Timer
+#define TIMER           1000          //...in seconds
+#define THREE_MINUTES   180
+#define EIGHT_MINUTES   480
+#define TEN_MINUTES     600
+#define FIFTEEN_MINUTES 900
+#define TWENTY_MINUTES  1200
+#define THIRTY_MINUTES  1800
+#define SIXTY_MINUTES   3600
+#define NINETY_MINUTES  5400
+
+
+// long seconds = 136; // just a random seconds to start from for testing
+
+/* Global variables
+ *
+ *         ______   __            __                  __
+ *        /      \ /  |          /  |                /  |
+ *       /$$$$$$  |$$ |  ______  $$ |____    ______  $$ |  _______
+ *       $$ | _$$/ $$ | /      \ $$      \  /      \ $$ | /       |
+ *       $$ |/    |$$ |/$$$$$$  |$$$$$$$  | $$$$$$  |$$ |/$$$$$$$/
+ *       $$ |$$$$ |$$ |$$ |  $$ |$$ |  $$ | /    $$ |$$ |$$      \
+ *       $$ \__$$ |$$ |$$ \__$$ |$$ |__$$ |/$$$$$$$ |$$ | $$$$$$  |
+ *       $$    $$/ $$ |$$    $$/ $$    $$/ $$    $$ |$$ |/     $$/
+ *        $$$$$$/  $$/  $$$$$$/  $$$$$$$/   $$$$$$$/ $$/ $$$$$$$/
+ *
+ *
+ */
+int g_lineHeight = 0;
+//strDateTime g_dateTime;
+int g_h = 11;
+int g_m = 59;
+int g_s= 34;
+
+/*  Useful Functions
+ *     $$$$$$$$\                              $$\     $$\
+ *     $$  _____|                             $$ |    \__|
+ *     $$ |   $$\   $$\ $$$$$$$\   $$$$$$$\ $$$$$$\   $$\   $$$$$$\   $$$$$$$\   $$$$$$$\
+ *     $$$$$\ $$ |  $$ |$$  __$$\ $$  _____|\_$$  _|  $$  |$$  __$$\ $$  __$$\  $$/_____|
+ *     $$  __|$$ |  $$ |$$ |  $$ |$$ /        $$ |    $$  |$$/   $$ |$$ |  $$|  $$$$$$\
+ *     $$ |   $$ |  $$ |$$ |  $$ |$$ |        $$     |$$\  $$|   $$ |$$ |  $$|       $$|
+ *     $$ |    $$$$$$  |$$ |  $$  |$$$$$$$\    $$$$  |$$   |$$$$$$| |$$ |  $$ |$$$$$$$ |
+ *     \__|    \______/ \__| \__|  \_______|   \____/ \__|  \______/\__|  \__|\_______/
+ */
+/**    drawMenuHeader()
+ * @author Kevin Murphy (https://www.SomerledDesign.com)
+ * @link @endlink
+ * @brief Generate the header for the display
+ *
+ * @param strDateTime &dateTime
+ * @param type param
+ * @return void
+ */
+void drawMenuHeader()
+{
+  // do something
+  //.drawFrame( 0, (g_lineHeight + 2), g_lcd.getWidth(), (g_lcd.getHeight() - (g_lineHeight + 2))); // Draw a boarder around the display
+  // g_lcd.clearDisplay();
+  g_lcd.setCursor(0, g_lineHeight);
+  g_lcd.printf("%d/%d/%d", 12, 22, 2023);
+  //g_lcd.setCursor(g_lcd.getWidth() - nTime.length(), g_lineHeight);
+  g_lcd.printf("%d:%d:%d", g_h, g_m, g_s);
+  g_lcd.drawHLine(0, g_lineHeight + 1, g_lcd.getWidth());
+  g_lcd.sendBuffer();
+
+  g_lcd.clearBuffer();
+  g_lcd.setFont(FONT_2);
+  int oldLineHeight = g_lineHeight;
+  g_lineHeight = g_lcd.getAscent() - g_lcd.getDescent();
+
+  g_lcd.setCursor((g_lcd.getWidth() / 2 ) - (2 * 9), g_lineHeight + oldLineHeight);
+  g_lcd.printf("79");
+
+  g_lcd.sendBuffer();
+
+  g_lineHeight = oldLineHeight;
+
+} // end drawMenuHeader()
+
+// void drawMenu()
+// {
+//   int g_page = 1;
+//   // drawMenuHeader(g_dateTime); // put the Date <left and Time >right in the header
+//   if (g_page == 1)
+//   {
+//     g_lcd.clearBuffer();
+
+//     g_lcd.setFontMode(1);
+//     g_lcd.setFont(u8g2_font_profont15_tf);
+//     g_lcd.setCursor(20, 0);
+//     g_lcd.clearDisplay();
+//     g_lcd.setFontMode(1);
+
+//     g_lcd.print("MAIN MENU");
+//     g_lcd.drawHLine(3, (g_lineHeight + 1), 0x4E);
+//     g_lcd.sendBuffer();
+
+    // if (menuitem == 1 && frame == 1)
+    // {
+    //   displayMenuItem(menuItem1, 15, true);
+    //   displayMenuItem(menuItem2, 25, false);
+    //   displayMenuItem(menuItem3, 35, false);
+    // }
+    // else if (menuitem == 2 && frame == 1)
+    // {
+    //   displayMenuItem(menuItem1, 15, false);
+    //   displayMenuItem(menuItem2, 25, true);
+    //   displayMenuItem(menuItem3, 35, false);
+    // }
+    // else if (menuitem == 3 && frame == 1)
+    // {
+    //   displayMenuItem(menuItem1, 15, false);
+    //   displayMenuItem(menuItem2, 25, false);
+    //   displayMenuItem(menuItem3, 35, true);
+    // }
+
+    // }
+    // .display();
+
+    // else if (g_page == 2 && menuitem == 1)
+    // {
+    //   displayIntMenug_page(menuItem1, temp);
+    // }
+
+    // else if (g_page == 2 && menuitem == 2)
+    // {
+    //   displayIntMenug_page(menuItem2, timer);
+    // }
+    // else if (g_page == 2 && menuitem == 3)
+    // {
+    //   displayIntMenug_page(menuItem3, contrast);
+  // }
+// } // end drawMenu()
+
+// void resetDefaults()
+//   {
+//     contrast = 60;
+//     setContrast();
+//     backlight = true;
+//     turnBacklightOn();
+//   } end resetDefaults()
+
+void setContrast()
+{
+  g_lcd.setContrast(contrast);
+  g_lcd.display();
+} // end setContrast()
+
+void turnBacklightOn()
+{
+  digitalWrite(BACKLIGHT_PIN, LOW);
+} // end turnBacklightOn()
+
+void turnBacklightOff()
+{
+  digitalWrite(BACKLIGHT_PIN, HIGH);
+} // end turnBacklightOff()
+
+// void timerIsr()
+// {
+//   encoder->service();
+// }
+
+// void displayIntMenug_page(String menuItem, int value)
+//   {
+//     display.setTextSize(1);
+//     display.clearDisplay();
+//     display.setTextColor(BLACK, WHITE);
+//     display.setCursor(15, 0);
+//     display.print(menuItem);
+//     display.drawFastHLine(0, 10, 83, BLACK);
+//     display.setCursor(5, 15);
+//     display.print("Value");
+//     display.setTextSize(2);
+//     display.setCursor(5, 25);
+//     display.print(value);
+//     display.setTextSize(2);
+//     display.display();
+//   }
+
+// void displayStringMenug_page(String menuItem, String value)
+//   {
+//     display.setTextSize(1);
+//     display.clearDisplay();
+//     display.setTextColor(BLACK, WHITE);
+//     display.setCursor(15, 0);
+//     display.print(menuItem);
+//     display.drawFastHLine(0, 10, 83, BLACK);
+//     display.setCursor(5, 15);
+//     display.print("Value");
+//     display.setTextSize(2);
+//     display.setCursor(5, 25);
+//     display.print(value);
+//     display.setTextSize(2);
+//     display.display();
+//   }
+
+void displayMenuItem(String item, int position, boolean selected)
+{
+  if (selected)
+  {
+    g_lcd.setFontMode(2);
+  }
+  else
+  {
+    g_lcd.setFontMode(1);
+  }
+  g_lcd.setCursor(0, position);
+  g_lcd.print(">" + item);
+}
+
+// void readRotaryEncoder()
+//   {
+//     value += encoder->getValue();
+
+//     if (value / 2 > last)
+//     {
+//       last = value / 2;
+//       down = true;
+//       delay(150);
+//     }
+//     else if (value / 2 < last)
+//     {
+//       last = value / 2;
+//       up = true;
+//       delay(150);
+//     }
+//   }
+
+// asm("sbi %0, %1 \n"
+//         :
+//         : "I"(_SFR_IO_ADDR(PIND)), "I"(PIND5));
+
+/**
+ * @author guix
+ * @link https://forum.arduino.cc/t/convert-seconds-variable-into-hours-minutes-seconds/273112 @endlink
+ * @brief
+ *
+ * @param seconds - seconds to convert
+ * @param h - ref to hours
+ * @param m - ref to mins
+ * @param s - ref to secs
+ *
+ */
+void secondsToHMS(const uint32_t seconds, uint16_t &h, uint8_t &m, uint8_t &s)
+{
+  uint32_t t = seconds;
+  // remainder seconds
+  s = t % 60;
+  // remainder minutes
+  t = (t - s) / 60;
+  m = t % 60;
+  // remainder hours
+  t = (t - m) / 60;
+  h = t;
+}
+
+/**    connectToWiFi()
+   * @author Kevin Murphy (https://www.SomerledDesign.com)
+   * @link @endlink
+   * @brief implement a wifi connection on the ESP8266
+   *
+   * @param *ssid
+   * @param *password
+   */
+  void connectToWiFi()
+{
+
+    // Connect to WiFi Network
+    debugln();
+    debugln();
+    debug("Connecting to WiFi");
+    debug(" ...");
+    WiFi.begin(ssid, password);
+    int retries = 0;
+    while ((WiFi.status() != WL_CONNECTED) && (retries < 15))
+    {
+      retries++;
+      yield();
+      delay(500);
+      debug(".");
+    }
+    if (retries > 14)
+    {
+      debugln(F("WiFi connection FAILED"));
+    }
+    if (WiFi.status() == WL_CONNECTED)
+    {
+      debugln(F("WiFi connected!"));
+      debugln("IP address: ");
+      debugln(WiFi.localIP());
+    }
+    debugln(F("Setup ready"));
+
+    yield();
+}   // end connectToWiFi()
+
+
+// ===============================================
+// SETUP  SETUP  SETUP  SETUP  SETUP  SETUP  SETUP
+// ===============================================
+
+void setup()
+{
+    beginDebug(DEBUG_BAUD);
+        debugln();
+    debugln("Booted");
+    connectToWiFi();
+    yield();
+    pinMode(BACKLIGHT_PIN, OUTPUT);
+    turnBacklightOn();
+
+    // g_dateTime = g_NTPus.getNTPtime(4, 2);
+
+    g_lcd.begin();
+    g_lcd.clear();
+    g_lcd.setContrast(contrast);
+    g_lcd.setFontMode(1);
+    g_lcd.setFont(FONT_3);
+
+    g_lineHeight = g_lcd.getFontAscent() - g_lcd.getFontDescent(); // Descent is a negative number so we add it to the total
+}
+
+// =============================================
+// LOOP  LOOP  LOOP  LOOP  LOOP LOOP  LOOP  LOOP
+// =============================================
+
+void loop()
+{
+  drawMenuHeader();
+  //g_r.loop();
+  //g_b.loop();
+  // if (up && g_page == 1) // We have turned the Rotary Encoder Counter Clockwise
+  // {
+
+  //   up = false;
+  //   if (menuitem == 3 && frame == 1)
+  //   {
+  //     menuitem--;
+  //   }
+
+  //   if (menuitem == 2 && frame == 1)
+  //   {
+  //     menuitem--;
+  //   }
+  //   if (menuitem == 1 && frame == 1)
+  //   {
+  //     menuitem=3;
+  //   }
+  //   lastMenuItem = menuitem;
+  //   menuitem--;
+  //   if (menuitem == 0)
+  //   {
+  //     menuitem = 1;
+  //   }
+  // }
+  // else if (up && g_page == 2 && menuitem == 1)
+  // {
+  //   up = false;
+  //   contrast--;
+  //   setContrast();
+  // }
+  // else if (up && g_page == 2 && menuitem == 2)
+  // {
+  //   up = false;
+  //   volume--;
+  // }
+  // else if (up && g_page == 2 && menuitem == 3)
+  // {
+  //   up = false;
+  //   selectedLanguage--;
+  //   if (selectedLanguage == -1)
+  //   {
+  //     selectedLanguage = 2;
+  //   }
+  // }
+  // else if (up && g_page == 2 && menuitem == 4)
+  // {
+  //   up = false;
+  //   selectedDifficulty--;
+  //   if (selectedDifficulty == -1)
+  //   {
+  //     selectedDifficulty = 1;
+  //   }
+  // }
+
+  // if (down && g_page == 1) // We have turned the Rotary Encoder Clockwise
+  // {
+
+  //   down = false;
+  //   if (menuitem == 3 && lastMenuItem == 2)
+  //   {
+  //     frame++;
+  //   }
+  //   else if (menuitem == 4 && lastMenuItem == 3)
+  //   {
+  //     frame++;
+  //   }
+  //   else if (menuitem == 5 && lastMenuItem == 4 && frame != 4)
+  //   {
+  //     frame++;
+  //   }
+  //   lastMenuItem = menuitem;
+  //   menuitem++;
+  //   if (menuitem == 7)
+  //   {
+  //     menuitem--;
+  //   }
+  // }
+  // else if (down && g_page == 2 && menuitem == 1)
+  // {
+  //   down = false;
+  //   contrast++;
+  //   setContrast();
+  // }
+  // else if (down && g_page == 2 && menuitem == 2)
+  // {
+  //   down = false;
+  //   volume++;
+  // }
+  // else if (down && g_page == 2 && menuitem == 3)
+  // {
+  //   down = false;
+  //   selectedLanguage++;
+  //   if (selectedLanguage == 3)
+  //   {
+  //     selectedLanguage = 0;
+  //   }
+  // }
+  // else if (down && g_page == 2 && menuitem == 4)
+  // {
+  //   down = false;
+  //   selectedDifficulty++;
+  //   if (selectedDifficulty == 2)
+  //   {
+  //     selectedDifficulty = 0;
+  //   }
+  // }
+
+  // if (middle) // Middle Button is Pressed
+  // {
+  //   middle = false;
+
+  //   if (g_page == 1 && menuitem == 3) // Set Timer
+  //   {
+  //     if (backlight)
+  //     {
+  //       backlight = false;
+  //       menuItem5 = "Light: OFF";
+  //       turnBacklightOff();
+  //     }
+  //     else
+  //     {
+  //       backlight = true;
+  //       menuItem5 = "Light: ON";
+  //       turnBacklightOn();
+  //     }
+  //   }
+
+  //   if (g_page == 1 && menuitem == 6) // Reset
+  //   {
+  //     resetDefaults();
+  //   }
+
+  //   else if (g_page == 1 && menuitem <= 4)
+  //   {
+  //     g_page = 2;
+  //   }
+  //   else if (g_page == 2)
+  //   {
+  //     g_page = 1;
+  //   }
+  // }
+}
+
+
