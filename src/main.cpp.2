@@ -1,0 +1,178 @@
+/**
+ * @file main.cpp
+ * @remarks uSonicTimer
+ * @author Kevin Murphy (https://www.SomerledDesign.com)
+ * @brief modifying an old, inexpensive Ultrasonic cleaner to include heating and timing
+ * @version 1.0
+ * @date 06/29/24
+ *
+ * @copyright Copyright (c) 2024 Somerled Design, LLC in Kevin Murphy
+ *
+ *                      GNU GENERAL PUBLIC LICENSE
+ *   This program is free software : you can redistribute it and/or modify
+ *   it under the terms of the GNU General Public License as published by
+ *   the Free Software Foundation, either version 3 of the License, or
+ *   (at your option) any later version.
+ *
+ *   This program is distributed in the hope that it will be useful,
+ *   but WITHOUT ANY WARRANTY; without even the implied warranty of
+ *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ *   GNU General Public License for more details.
+ *
+ *   You should have received a copy of the GNU General Public License
+ *   along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ *
+ *
+ *   This code is currently maintained for and compiled with Arduino 1.8.x.
+ *   Your mileage may vary with other versions.
+ *
+ *   ATTENTION: LIBRARY FILES MUST BE PUT IN LIBRARIES DIRECTORIES AND NOT THE INO SKETCH DIRECTORY !!!!
+ *
+ *   FOR EXAMPLE:
+ *   tiny4kOLED.h, tiny4kOLED.cpp ------------------------>   \Arduino\Sketchbook\libraries\tiny4kOLED\
+ *
+ *   Version History -
+ *
+ *   .100 - 01/16/22 - A work in progress
+ *   .200 - 01/29/22 - rewrite with u8g2lib as display driver
+ *   .300 - 06/29/24 - complete rework from scratch
+ *
+ * DISCLAIMER:
+ *   With this design, including both the hardware & software I offer no guarantee that it is bug
+ *   free or reliable. So, if you decide to build one and you have problems or issues and/or causes
+ *   damage/harm to you, others or property then you are on your own. This work is experimental.
+ *
+ */
+
+#include <Arduino.h>
+#include <inttypes.h>
+
+#include <Adafruit_GFX.h>
+#include <Adafruit_PCD8544.h>
+
+#include "OneWire.h"
+#include "DallasTemperature.h"
+
+#include "ESPRotary.h"
+#include "Ticker.h"
+#include "Button2.h"
+
+
+/*
+ *  ---Available I/O---
+ *   •   GPIO0     D3
+ *   •   GPIO1     D10 (TX) \
+ *   •   GPIO3     D9  (RX)  |  If using as inputs don't call Serial.begin()
+ *
+ *   •   GPIO2     D4  (SCL)   \
+ *                               - I2C
+ *   •   GPIO4     D2  (SDA)   /
+ *
+ *   •   GPIO5     D1
+ *
+ *   ○   GPIO12    D6  (MISO) | \
+ *   •   GPIO13    D7  (MOSI) |    S
+ *   •   GPIO14    D5  (SCLK) |     P
+ *   •   GPIO15    D8  (CS)   | /    I
+ *   •   GPIO16    D0  (no interrupt)
+ *   •   ADC0      A0  (Analog Input)
+ *
+ * ----------------------------------------------------------------------------------------
+ *  Required I/O:
+ *    SPI Nokia 5110
+ *      Func          Non i/o     Digitial     GPIO i/o     ESP12e Pin         Descr.
+ *     =====================================================================================
+ *    1 RESET          RST        D3           GPIO0       1
+ *    2 CS                        D8(CS)       GPIO15      16
+ *    3 D/C                       D10/TX       GPIO1       22
+ *    4 DIN                       D7(MOSI)     GPIO13      7
+ *    5 CLK                       D5(SCLK)     GPIO14      5
+ *    6 VCC            3V
+ *    7 BL                        D4           GPIO2       17                 Backlight PWM
+ *    8 GND
+ *
+ *    Rotary Encoder
+ *      Func          Non i/o     Digitial     GPIO i/o     ESP12e Pin        Descr.
+ *     =====================================================================================
+ *      ROT_ENC_A_PIN             D9           GPIO3       21
+ *      ROT_ENC_B_PIN             A0           ADC0        2
+ *      ROT_ENC_BUTTON_PIN        D3           GPIO0       18
+ *
+ *    Relays
+ *      Func          Non i/o     Digitial     GPIO i/o     ESP12e Pin         Descr.
+ *     =====================================================================================
+ *      HEATER_ENABLE_PIN         D2           GPIO4       19
+ *      DEVICE_ENABLE_PIN         D1           GPIO5       20
+ *
+ *    Dallas Temp Sensor (DS18B20)
+ *      Func          Non i/o     Digitial     GPIO i/o     ESP12e Pin         Descr.
+ *     =====================================================================================
+ *      ONE_WIRE_BUS              D0           GPIO0        18
+ */
+
+#define SERIAL_SPEED 115200
+
+// Pin definitions
+#define ONE_WIRE_BUS D0      // DS18B20 Data/Control
+#define DEVICE_ENABLE_PIN D1 // Best for Relay control
+#define HEATER_ENABLE_PIN D2 // Best for Relay control
+#define BUTTON_PIN D3        // Pin for Encoder Button
+#define BACKLIGHT_PIN  D4    // Pin for LCD Backlight
+
+#define ROT_ENC_A_PIN D9      // CLK
+#define ROT_ENC_B_PIN A0      // DT
+#define CLICKS_PER_STEP 4
+
+// -------------------------------------------------------------------------
+//  NOKIA 5110 LCD
+#define sclk_pin D5
+#define dc_pin D6
+#define din_pin D7
+#define cs_pin D8
+#define rst_pin -1 // as in the Adafruit header... physically conn to RST switch
+
+/***
+ *   ___           _              _   _       _   _
+ *  |_ _|_ __  ___| |_ __ _ _ __ | |_(_) __ _| |_(_) ___  _ __  ___
+ *   | || '_ \/ __| __/ _` | '_ \| __| |/ _` | __| |/ _ \| '_ \/ __|
+ *   | || | | \__ | || (_| | | | | |_| | (_| | |_| | (_) | | | \__ \
+ *  |___|_| |_|___/\__\__,_|_| |_|\__|_|\__,_|\__|_|\___/|_| |_|___/
+ *
+ */
+
+// -------------------------------------------------------------------------
+// Display
+Adafruit_PCD8544 display = Adafruit_PCD8544(sclk_pin, din_pin, dc_pin, cs_pin, rst_pin);
+
+// -------------------------------------------------------------------------
+// Temperature sensor
+OneWire oneWire(ONE_WIRE_BUS);
+DallasTemperature sensors(&oneWire);
+
+// -------------------------------------------------------------------------
+//  Rotary Encoder
+ESPRotary encoder;
+Ticker ticker;
+Button2 button;
+
+
+
+// ==================================================================================================
+//  SETUP  SETUP  SETUP  SETUP  SETUP  SETUP  SETUP  SETUP  SETUP  SETUP  SETUP  SETUP  SETUP  SETUP
+// ==================================================================================================
+
+void setup() {
+  // put your setup code here, to run once:
+
+}
+
+// ==================================================================================================
+//  LOOP  LOOP  LOOP  LOOP  LOOP  LOOP  LOOP  LOOP  LOOP  LOOP  LOOP  LOOP  LOOP  LOOP  LOOP  LOOP
+// ==================================================================================================
+void loop() {
+  // put your main code here, to run repeatedly:
+
+}
+
+
+

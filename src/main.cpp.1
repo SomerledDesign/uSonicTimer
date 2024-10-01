@@ -1,0 +1,300 @@
+/*
+ *
+ *  Explanation:
+ *   Libraries & Pin Definitions: The necessary libraries are included, and the pins for the temperature sensor, relays, rotary encoder, and display are defined.
+ *   Global Variables: Global variables store the current temperature, the set temperature, timer, and contrast settings. These can be updated through the menus.
+ *   Menu System: The program includes a basic menu system controlled by a rotary encoder. The user can navigate between "Start Timer," "Set Timer," "Set Temperature," "Network," and "Contrast" using the encoder, with the highlighted menu item being shown in reverse video.
+ *   Submenu Pages:
+ *   Set Timer: Allows the user to select a preset countdown time.
+ *   Set Temperature: The user can adjust the target temperature.
+ *   Network: Placeholder for connecting to a WiFi network.
+ *   Contrast: Adjusts the display contrast.
+ *   Countdown Timer Operation: When the timer starts, the program will monitor the temperature and control the heater and ultrasonic cleaner accordingly.
+ *   Temperature Updates: The current temperature is updated periodically by reading the DS18B20 sensor.
+ *   This code serves as a solid foundation and should be tested and adjusted according to your specific hardware configuration.
+ */
+
+/*  CHATGPT:
+ *  Here's a C++ Arduino program for your ESP8266 that implements the
+ *  described menu-driven countdown timer. This program uses the
+ *  specified libraries and controls the bowl heater and ultrasonic
+ *  cleaner with the NOKIA 5110 display for the GUI menu system.
+ */
+#include <OneWire.h>
+#include <DallasTemperature.h>
+#include <ESPRotary.h>
+#include <Button2.h>
+#include <U8g2lib.h>
+#include <ESP8266WiFi.h>
+
+// Pin Definitions
+#define ONE_WIRE_BUS D1
+#define ROTARY_PIN_A D2
+#define ROTARY_PIN_B D3
+#define ROTARY_BUTTON_PIN D4
+#define HEATER_RELAY_PIN D5
+#define CLEANER_RELAY_PIN D6
+
+// Constants
+#define TEMP_OFFSET 10
+
+// Variables
+float currentTemperature = 0;
+float setTemperature = 75.0;     // Default temperature
+unsigned long setTimer = 600000; // Default time in milliseconds (10 minutes)
+int contrast = 100;              // Default contrast
+
+// Menu Items
+enum MenuItem
+{
+    START_TIMER,
+    SET_TIMER,
+    SET_TEMPERATURE,
+    NETWORK,
+    CONTRAST,
+    MENU_ITEMS_COUNT
+};
+MenuItem currentMenuItem = START_TIMER;
+
+// Display
+U8G2_PCD8544_84X48_F_SW_SPI u8g2(U8G2_R0, /* clock=*/D7, /* data=*/D8, /* cs=*/D9, /* dc=*/D10, /* reset=*/D11);
+
+// Temperature Sensor
+OneWire oneWire(ONE_WIRE_BUS);
+DallasTemperature sensors(&oneWire);
+
+// Rotary Encoder
+ESPRotary rotary = ESPRotary(ROTARY_PIN_A, ROTARY_PIN_B);
+Button2 encoderButton(ROTARY_BUTTON_PIN);
+
+// WiFi Variables
+char ssid[] = "your_SSID";
+char pass[] = "your_PASSWORD";
+
+// Functions Declaration
+void drawMenu();
+void drawSetTimerPage();
+void drawSetTemperaturePage();
+void drawNetworkPage();
+void drawContrastPage();
+void startCountdownTimer();
+void updateTemperature();
+
+void setup()
+{
+    // Initialize Display
+    u8g2.begin();
+    u8g2.setContrast(contrast);
+
+    // Initialize Temperature Sensor
+    sensors.begin();
+    updateTemperature();
+
+    // Initialize Relay Pins
+    pinMode(HEATER_RELAY_PIN, OUTPUT);
+    pinMode(CLEANER_RELAY_PIN, OUTPUT);
+    digitalWrite(HEATER_RELAY_PIN, LOW);
+    digitalWrite(CLEANER_RELAY_PIN, LOW);
+
+    // Initialize Rotary Encoder
+    rotary.begin();
+    encoderButton.begin();
+
+    rotary.setChangedHandler([](ESPRotary &r)
+                             {
+    currentMenuItem = (MenuItem)((currentMenuItem + r.getDirection()) % MENU_ITEMS_COUNT);
+    drawMenu(); });
+
+    encoderButton.setLongClickHandler([](Button2 &btn)
+                                      {
+    switch (currentMenuItem) {
+      case START_TIMER:
+        startCountdownTimer();
+        break;
+      case SET_TIMER:
+        drawSetTimerPage();
+        break;
+      case SET_TEMPERATURE:
+        drawSetTemperaturePage();
+        break;
+      case NETWORK:
+        drawNetworkPage();
+        break;
+      case CONTRAST:
+        drawContrastPage();
+        break;
+    } });
+
+    // Display Initial Menu
+    drawMenu();
+}
+
+void loop()
+{
+    rotary.loop();
+    encoderButton.loop();
+    updateTemperature();
+}
+
+void drawMenu()
+{
+    u8g2.clearBuffer();
+    u8g2.setFont(u8g2_font_6x12_tr);
+
+    const char *menuItems[] = {"Start Timer", "Set Timer", "Set Temperature", "Network", "Contrast"};
+    for (int i = 0; i < MENU_ITEMS_COUNT; i++)
+    {
+        if (i == currentMenuItem)
+        {
+            u8g2.setDrawColor(1);
+            u8g2.drawBox(0, i * 10, 84, 10);
+            u8g2.setDrawColor(0);
+            u8g2.drawStr(0, (i + 1) * 10 - 1, menuItems[i]);
+            u8g2.setDrawColor(1);
+        }
+        else
+        {
+            u8g2.drawStr(0, (i + 1) * 10 - 1, menuItems[i]);
+        }
+    }
+
+    u8g2.sendBuffer();
+}
+
+void drawSetTimerPage()
+{
+    u8g2.clearBuffer();
+    u8g2.setFont(u8g2_font_6x12_tr);
+
+  const char *presets[] = {"3 min", "8 min", "10 min", "15 min", "20 min", "30 min", "60 min"};
+    static int selectedPreset = 2; // Default 10 min
+
+    rotary.setChangedHandler([&](ESPRotary &r)
+                             {
+    selectedPreset = (selectedPreset + r.getDirection()) % 7;
+    drawSetTimerPage(); });
+
+    encoderButton.setClickHandler([&](Button2 &btn)
+                                  {
+    switch (selectedPreset) {
+      case 0: setTimer = 3 * 60000; break;
+      case 1: setTimer = 8 * 60000; break;
+      case 2: setTimer = 10 * 60000; break;
+      case 3: setTimer = 15 * 60000; break;
+      case 4: setTimer = 20 * 60000; break;
+      case 5: setTimer = 30 * 60000; break;
+      case 6: setTimer = 60 * 60000; break;
+    }
+    drawMenu(); });
+
+    u8g2.drawStr(0, 12, "Set Timer");
+    u8g2.drawStr(0, 24, presets[selectedPreset]);
+    u8g2.sendBuffer();
+}
+
+void drawSetTemperaturePage()
+{
+    u8g2.clearBuffer();
+    u8g2.setFont(u8g2_font_6x12_tr);
+
+  static int cursorPosition = 0;
+
+    rotary.setChangedHandler([&](ESPRotary &r)
+                             {
+    int factor = cursorPosition == 0 ? 1 : cursorPosition == 1 ? 10 : 100;
+    setTemperature += r.getDirection() * factor;
+    drawSetTemperaturePage(); });
+
+    encoderButton.setClickHandler([&](Button2 &btn)
+                                  {
+    cursorPosition = (cursorPosition + 1) % 2;
+    drawSetTemperaturePage(); });
+
+    char tempStr[6];
+    sprintf(tempStr, "%03d", (int)setTemperature);
+
+  u8g2.drawStr(0, 12, "Set Temperature");
+
+    for (int i = 0; i < 3; i++)
+    {
+        if (i == cursorPosition)
+        {
+            u8g2.setDrawColor(1);
+            u8g2.drawBox(30 + i * 8, 24, 8, 12);
+            u8g2.setDrawColor(0);
+            u8g2.drawStr(30 + i * 8, 34, String(tempStr[i]).c_str());
+            u8g2.setDrawColor(1);
+        }
+        else
+        {
+            u8g2.drawStr(30 + i * 8, 34, String(tempStr[i]).c_str());
+        }
+    }
+
+    u8g2.sendBuffer();
+}
+
+void drawNetworkPage()
+{
+    // WiFi connection code can be implemented here.
+    drawMenu();
+}
+
+void drawContrastPage()
+{
+    u8g2.clearBuffer();
+    u8g2.setFont(u8g2_font_6x12_tr);
+
+  rotary.setChangedHandler([&](ESPRotary &r)
+                             {
+    contrast += r.getDirection() * 5;
+    u8g2.setContrast(contrast);
+    drawContrastPage(); });
+
+    u8g2.drawStr(0, 12, "Set Contrast");
+    u8g2.drawStr(0, 24, String(contrast).c_str());
+    u8g2.sendBuffer();
+}
+
+void startCountdownTimer()
+{
+    unsigned long startTime = millis();
+    while (millis() - startTime < setTimer)
+    {
+        updateTemperature();
+        if (currentTemperature < setTemperature - TEMP_OFFSET)
+        {
+            digitalWrite(HEATER_RELAY_PIN, HIGH);
+            digitalWrite(CLEANER_RELAY_PIN, LOW);
+        }
+        else if (currentTemperature >= setTemperature)
+        {
+            digitalWrite(HEATER_RELAY_PIN, LOW);
+            digitalWrite(CLEANER_RELAY_PIN, HIGH);
+        }
+
+        u8g2.clearBuffer();
+        u8g2.setFont(u8g2_font_6x12_tr);
+
+        unsigned long remainingTime = setTimer - (millis() - startTime);
+        char timeStr[9];
+        sprintf(timeStr, "%02lu:%02lu", remainingTime / 60000, (remainingTime / 1000) % 60);
+        u8g2.drawStr(0, 12, timeStr);
+
+        char tempStr[20];
+        sprintf(tempStr, "Temp: %0.1f/%0.1f", currentTemperature, setTemperature);
+        u8g2.drawStr(0, 24, tempStr);
+
+        u8g2.sendBuffer();
+    }
+
+    digitalWrite(HEATER_RELAY_PIN, LOW);
+    digitalWrite(CLEANER_RELAY_PIN, LOW);
+    drawMenu();
+}
+
+void updateTemperature()
+{
+    sensors.requestTemperatures();
+    currentTemperature = sensors.getTempFByIndex(0);
+}

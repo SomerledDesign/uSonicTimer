@@ -1,0 +1,15 @@
+Please write a C++ Arduino program for an ESP8266.  The program is a menu driven countdown timer to control a bowl heater and operation of an Ultrasonic Cleaner. A NOKIA 5110 display is used for the GUI menu system and can set the presets, set the desired temperature, start the countdown, join a network, etc.
+Included libraries are: "OneWire", "DallasTemperature", "ESPRotary", "Button2", "U8g2lib" and any other ones which you deem necessary.
+In setup() the currentTemperature variable should be set to read the temperature of the DS18B20. The setTemperature and setTimer variables should be initialized to their defaults or last settings if available.
+There should be 5 menu items on the main menu page: 
+    1.) Start Timer
+    2.) Set Timer
+    3.) Set Temperature
+    4.) Network
+    5.) Contrast
+Each main menu page can be select by rotating an encoder and the menuItem becomes highlighted with reverse video (white letters on black background) if the encoder button is then long pressed the submenu page for that item is shown.
+If the Start Timer menuItem is selected and there is a long press this will bring up an über page with just the timer (counting down) and the current and set temperature of the DS18B20. The program will then turn on the heater (if the tempSetting is greater than the currentTemperature).  When the currentTemperature is within the tempOffset value (usually 10 degrees Fahrenheit) lower than tempSetting the heater can be turned off and the cleaner can be turned on.  Both the heater and the cleaner are controlled by solid state relays switching the required 110VAC supply.
+Submenu pages for Set Timer, Set Temperature, Network and Contrast are used to set a preset time (3 min, 8 min, 10 min, 15 min, 20 min, 30 min and 60 min); adjust set temperature; connect to a local WiFi SSID; and adjust the LCD contrast respectively.
+Both the 'Set Temperature' and 'Contrast' submenus utilize a selectable cursor (Selecting cursor by clicking [short press] the shaft button of the encoder).  Repeated clicking changes the unit the cursor is set to.  From units to tens, to hundreds (if used) and then back to units; The cursor is indicated by a reverse video digit. Turning the encoder shaft to the left or the right would then 'decrease' or 'increase' the digit under the cursor respectively.
+The Set Timer submenu displays the preset times, one at a time, and turning the encoder shaft left or right scrolls through the preset times, wrapping around when the end or beginning of the list is reached. The timer submenu will set the timer value.
+Menu display routine should minimize artifacts (left over pixels from previous displays).

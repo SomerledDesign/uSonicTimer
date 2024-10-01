@@ -1,0 +1,51 @@
+<mxfile host="65bd71144e">
+    <diagram id="PApxm8jZjVWmQAmR6UFd" name="Page-1">
+        <mxGraphModel dx="383" dy="278" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="850" pageHeight="1100" math="0" shadow="0">
+            <root>
+                <mxCell id="0"/>
+                <mxCell id="1" parent="0"/>
+                <mxCell id="8" style="edgeStyle=none;html=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;fontFamily=Comic Sans MS;fontSize=12;fontColor=#000000;" edge="1" parent="1" source="2" target="7">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="2" value="START" style="rounded=1;whiteSpace=wrap;html=1;strokeWidth=1;fillColor=#1ba1e2;fontColor=#000000;strokeColor=#006EAF;comic=0;fontFamily=Comic Sans MS;arcSize=45;absoluteArcSize=1;" vertex="1" parent="1">
+                    <mxGeometry x="110" y="130" width="90" height="30" as="geometry"/>
+                </mxCell>
+                <mxCell id="3" value="&lt;h1&gt;uSonicTime&lt;/h1&gt;&lt;p&gt;&amp;nbsp;&lt;span style=&quot;background-color: rgb(34, 26, 15); color: rgb(211, 175, 134); font-family: &amp;quot;Comic Code Ligatures&amp;quot;, Menlo, Monaco, &amp;quot;Courier New&amp;quot;, monospace, Menlo, Monaco, &amp;quot;Courier New&amp;quot;, monospace;&quot;&gt;An arduino code project to create a timer for my cheap ultrasonic cleaner.  It incorporates a Nokia 5110 to display countdown time.&lt;/span&gt;&lt;/p&gt;" style="text;html=1;strokeColor=none;fillColor=none;spacing=5;spacingTop=-20;whiteSpace=wrap;overflow=hidden;rounded=0;comic=0;strokeWidth=1;fontFamily=Comic Sans MS;fontSize=12;fontColor=#000000;align=center;" vertex="1" parent="1">
+                    <mxGeometry x="10" y="10" width="800" height="120" as="geometry"/>
+                </mxCell>
+                <mxCell id="11" style="edgeStyle=none;html=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;fontFamily=Comic Sans MS;fontSize=12;fontColor=#000000;" edge="1" parent="1" source="7" target="10">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="7" value="Display Splash" style="rounded=0;whiteSpace=wrap;html=1;comic=0;strokeColor=#56517e;strokeWidth=1;fontFamily=Comic Sans MS;fontSize=12;fillColor=#d0cee2;fontColor=#000000;" vertex="1" parent="1">
+                    <mxGeometry x="112.5" y="200" width="85" height="30" as="geometry"/>
+                </mxCell>
+                <mxCell id="9" value="Button Press" style="shape=parallelogram;perimeter=parallelogramPerimeter;whiteSpace=wrap;html=1;fixedSize=1;rounded=0;comic=0;strokeColor=#006EAF;strokeWidth=1;fontFamily=Comic Sans MS;fontSize=12;fontColor=#000000;fillColor=#1ba1e2;" vertex="1" parent="1">
+                    <mxGeometry x="95" y="310" width="120" height="60" as="geometry"/>
+                </mxCell>
+                <mxCell id="12" style="edgeStyle=none;html=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;fontFamily=Comic Sans MS;fontSize=12;fontColor=#000000;" edge="1" parent="1" source="10" target="9">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="10" value="Display Menu" style="rounded=0;whiteSpace=wrap;html=1;comic=0;strokeColor=#56517e;strokeWidth=1;fontFamily=Comic Sans MS;fontSize=12;fillColor=#d0cee2;fontColor=#000000;" vertex="1" parent="1">
+                    <mxGeometry x="112.5" y="250" width="85" height="30" as="geometry"/>
+                </mxCell>
+                <mxCell id="14" style="edgeStyle=none;html=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;fontFamily=Comic Sans MS;fontSize=12;fontColor=#000000;" edge="1" parent="1" source="13" target="15">
+                    <mxGeometry relative="1" as="geometry">
+                        <mxPoint x="270.0000000000001" y="440.18181818181824" as="targetPoint"/>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="13" value="Tap or LongPress?&lt;br&gt;" style="rhombus;whiteSpace=wrap;html=1;rounded=0;comic=0;strokeColor=#006EAF;strokeWidth=1;fontFamily=Comic Sans MS;fontSize=12;fontColor=#000000;fillColor=#1ba1e2;" vertex="1" parent="1">
+                    <mxGeometry x="110" y="400" width="80" height="80" as="geometry"/>
+                </mxCell>
+                <mxCell id="17" style="edgeStyle=none;html=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;fontFamily=Comic Sans MS;fontSize=12;fontColor=#000000;" edge="1" parent="1" source="15" target="16">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="15" value="Tap" style="text;html=1;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;comic=0;strokeWidth=1;fontFamily=Comic Sans MS;fontSize=12;" vertex="1" parent="1">
+                    <mxGeometry x="215.0000000000001" y="425.00181818181824" width="60" height="30" as="geometry"/>
+                </mxCell>
+                <mxCell id="16" value="Start Timer&lt;br style=&quot;font-size: 8px;&quot;&gt;Turn on Device&lt;br style=&quot;font-size: 8px;&quot;&gt;Check Temp if&lt;br&gt;&amp;nbsp;&amp;lt;setTemp&lt;br style=&quot;font-size: 8px;&quot;&gt;Turn on Heater" style="whiteSpace=wrap;html=1;aspect=fixed;rounded=0;comic=0;strokeColor=#006EAF;strokeWidth=1;fontFamily=Comic Sans MS;fontSize=8;fontColor=#000000;fillColor=#1ba1e2;" vertex="1" parent="1">
+                    <mxGeometry x="300" y="400" width="80" height="80" as="geometry"/>
+                </mxCell>
+            </root>
+        </mxGraphModel>
+    </diagram>
+</mxfile>

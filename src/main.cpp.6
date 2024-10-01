@@ -1,0 +1,130 @@
+#include <Wire.h>
+#include <LiquidCrystal_I2C.h>
+#include <OneButton.h>
+#include <u8g2.h>
+#include "DallasTemperature.h"
+
+// Set the LCD address to 0x27 for a 16x2 LCD display
+LiquidCrystal_I2C lcd(0x27, 16, 2);
+
+// Define the SSR pin
+const int ssrPin = D1;
+
+// Initialize the Dallas Temperature sensor
+DeviceAddress insideThermometer = { 0x28 };
+
+// Create a variable to hold the desired temperature setting
+float tempSet = 0;
+
+// Create a variable to hold the actual temperature reading
+float tempActual = 0;
+
+// Create a flag to indicate when the temperature has been updated
+boolean updateTemp = false;
+
+// Define the menu items
+char* menuItems[] = {"Increase Temp", "Decrease Temp", "Exit"};
+
+// Define the menu item indexes
+byte menuItemIndexes[] = {0, 1, 2};
+
+// Define the menu item labels
+String menuItemLabels[] = {"+", "-", "X"};
+
+// Define the menu item functions
+void (*menuItemFuncs[])() = {&increaseTemp, &decreaseTemp, NULL};
+
+// Define the menu structure
+Menu menu(&lcd, menuItems, sizeof(menuItems), menuItemIndexes, menuItemLabels, menuItemFuncs);
+
+// Define the button pin
+const int buttonPin = D2;
+
+// Create a OneButton object
+OneButton button(buttonPin, ONEBUTTON_INVERSE);
+
+// Define the callback function for the button press event
+void buttonPressCallback() {
+  // Check if the button was pressed
+  if (button.isPressed()) {
+    // Update the temperature setting
+    tempSet += 1;
+    
+    // Display the new temperature setting
+    lcd.setCursor(0, 0);
+    lcd.print("Desired Temp: ");
+    lcd.print(tempSet);
+    lcd.print("\n");
+    
+    // Turn off the SSR
+    digitalWrite(ssrPin, HIGH);
+  }
+}
+
+// Define the callback function for the button release event
+void buttonReleaseCallback() {
+  // Check if the button was released
+  if (button.isReleased()) {
+    // Turn on the SSR
+    digitalWrite(ssrPin, LOW);
+  }
+}
+
+void setup() {
+  // Initialize the LCD display
+  lcd.init();
+  lcd.backlight();
+  
+  // Initialize the SSR
+  pinMode(ssrPin, OUTPUT);
+  digitalWrite(ssrPin, HIGH);
+  
+  // Initialize the Dallas Temperature sensor
+  DallasTemperature.begin();
+  
+  // Attach the interrupt handler for the button press event
+  attachInterrupt(digitalPinToInterrupt(buttonPin), buttonPressCallback, RISING);
+  
+  // Attach the interrupt handler for the button release event
+  attachInterrupt(digitalPinToInterrupt(buttonPin), buttonReleaseCallback, FALLING);
+}
+
+void loop() {
+  // Read the temperature every second
+  DallasTemperature.requestTemperaturesByIndex(insideThermometer);
+  float temp = DallasTemperature.getTemperature(insideThermometer);
+  
+  // Update the actual temperature reading
+  tempActual = temp;
+  
+  // Display the temperatures on the LCD screen
+  lcd.clear();
+  lcd.setCursor(0, 0);
+  lcd.print("Desired Temp: ");
+  lcd.print(tempSet);
+  lcd.print("\n");
+  lcd.print("Actual Temp: ");
+  lcd.print(tempActual);
+  lcd.print("\n");
+  
+  // Update the temperature setting if necessary
+  if (updateTemp) {
+    tempSet = tempActual;
+    updateTemp = false;
+  }
+  
+  // Delay for one second
+  delay(1000);
+}
+
+// Function to increase the temperature setting
+void increaseTemp() {
+  tempSet++;
+  updateTemp = true;
+}
+
+// Function to decrease the temperature setting
+void decreaseTemp() {
+  tempSet--;
+  updateTemp = true;
+}

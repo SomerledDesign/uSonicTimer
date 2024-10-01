@@ -1,0 +1,301 @@
+/* DEBUG toggle */
+// #define DEBUG 1
+/**
+ * @file main.cpp
+ * @remarks uSonicTimer
+ * @author Kevin Murphy (https://www.SomerledDesign.com)
+ * @brief modifying an old, inexpensive Ultrasonic cleaner to include heating and timing
+ * @version 0.2
+ * @date 02/10/23
+ *
+ * @copyright Copyright (c) 2023 Somerled Design, LLC in Kevin Murphy
+ *
+ *                      GNU GENERAL PUBLIC LICENSE
+ *   This program is free software : you can redistribute it and/or modify
+ *   it under the terms of the GNU General Public License as published by
+ *   the Free Software Foundation, either version 3 of the License, or
+ *   (at your option) any later version.
+ *
+ *   This program is distributed in the hope that it will be useful,
+ *   but WITHOUT ANY WARRANTY; without even the implied warranty of
+ *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ *   GNU General Public License for more details.
+ *
+ *   You should have received a copy of the GNU General Public License
+ *   along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ *
+ *
+ *   This code is currently maintained for and compiled with Arduino 1.8.x.
+ *   Your mileage may vary with other versions.
+ *
+ *   ATTENTION: LIBRARY FILES MUST BE PUT IN LIBRARIES DIRECTORIES AND NOT THE INO SKETCH DIRECTORY !!!!
+ *
+ *   FOR EXAMPLE:
+ *   tiny4kOLED.h, tiny4kOLED.cpp ------------------------>   \Arduino\Sketchbook\libraries\tiny4kOLED\
+ *
+ *   Version History -
+ *
+ *   .100 - 01/16/22 - A work in progress
+ *   .200 - 01/29/22 - rewrite with u8g2lib as display driver
+ *
+ *
+ * DISCLAIMER:
+ *   With this design, including both the hardware & software I offer no guarantee that it is bug
+ *   free or reliable. So, if you decide to build one and you have problems or issues and/or causes
+ *   damage/harm to you, others or property then you are on your own. This work is experimental.
+ *
+ */
+
+/*
+ *  Required I/O:
+ *    SPI Nokia 5110
+ *      Func          Non i/o     i/o
+ *     =====================================
+ *      RESET          RST
+ *      CS             LOW
+ *      D/C                        D4
+ *      DIN                        D7(MOSI)
+ *      CLK                        D5(SCLK)
+ *      VCC            3V3
+ *      BL                         D6(MISO)  Backlight PWM
+ *
+ *    Rotary Encoder
+ *      Func          Non i/o     i/o
+ *     =====================================
+ *      ENC_A                      D0
+ *      ENC_B                      A0
+ *      BUTTON                     D8
+ *
+ *    Relays
+ *      Func          Non i/o     i/o
+ *     =====================================
+ *      TEMP                        D1
+ *      TRNSDCR                     D2
+ *
+ *    Dallas Temp Sensor (DS18B20)
+ *      Func          Non i/o     i/o
+ *     =====================================
+ *      ONE_WIRE_BUS              D3
+ */
+
+#include <Arduino.h>
+
+// Rotary Endcoder
+#include <ESPRotary.h>
+#include <Button2.h>
+
+// Drawing the Display with rectangles and circles and text, oh my
+// #include <U8g2lib.h>
+
+#if DEBUG == 1 // DEBUG START
+#define beginDebug(x) Serial.begin(x)
+#define debug(x) Serial.print(x)
+#define debugln(x) Serial.println(x)
+#define DEBUG_BAUD 9600
+#else
+#define beginDebug(x)
+#define debug(x)
+#define debugln(x)
+#endif // END DEBUG
+
+// fonts to use in the display
+#define FONT_1 u8g2_font_tinytim_tn
+#define FONT_2 u8g2_font_luBS19_tr
+#define FONT_3 u8g2_font_p01type_tn
+
+// ----------------------------------------------
+// PINS  PINS  PINS  PINS  PINS  PINS  PINS  PINS
+// ----------------------------------------------
+
+// Relays
+// Best to use GPIO 4 and 5 for relays
+// #define TRNSDCR_RLY_PIN D1    /*GPIO5*/
+// #define HEATER_RLY_PIN  D2    /*GPIO4*/
+
+// NOKIA 5110
+// #define RST_PIN         <-Connect to Reset according to adafruit https://learn.adafruit.com/nokia-5110-3310-monochrome-lcd/wiring-fewer-pins
+// #define CS_PIN          <-Connect to Ground according to adafruit
+// #define DC_PIN       // This is for toggling Data/Command
+// #define CLK_PIN      // This should all be handled in the U8G2 class for HW SPI
+// #define BACKLIGHT_PIN    <-Connect to Ground for always on
+// #define DIN_PIN      //This should all be handled in the U8G2 class for HW SPI
+
+// Rotary Encoder ky-040
+#define ENC_BUTTON D8
+#define ENC_CLK D2
+#define ENC_DT D4
+#define CLICKS_PER_STEP 2
+
+//  ------------------------------------
+//  Instantiations
+//  ------------------------------------
+// Nokia 5110
+// U8G2_PCD8544_84X48_F_4W_HW_SPI g_lcd(U8G2_R0, /* cs=*/D3, /* dc=*/D4, /* reset=*/0); // Nokia 5110 Display hardware defined reset is connected to rst on board
+
+// Rotary encoder and button
+ESPRotary r;
+Button2 b;
+
+//  ------------------------------------
+//  Global variables
+//  ------------------------------------
+// Menu stuff
+int g_menuitem = 1;
+
+int g_frame = 1;
+int g_g_page = 1;
+int g_lastMenuItem = 1;
+
+String g_menuItem1 = "Contrast";
+String g_menuItem2 = "Set Temp";
+String g_menuItem3 = "Set Timer";
+
+//  Start Settings
+uint8_t contrast = 145;
+int temp = 14;        // Temperature in Celcius to start, about 60ºF
+uint16_t timer = 180; // Timer in seconds to start (3 minutes)
+
+// Temperary Header Stuff
+int g_h = 11;
+int g_m = 59;
+int g_s = 34;
+
+// General display stuff
+byte g_graphicMargin = 3;
+byte g_textMargin = 6;
+
+//  ------------------------------------
+//  Useful Functions
+//  ------------------------------------
+float celciusToFahrenheight(int temp)
+{
+  return temp * 9.0 / 5.0 + 32;
+}
+
+/**
+ * @author guix
+ * @link https://forum.arduino.cc/t/convert-seconds-variable-into-hours-minutes-seconds/273112 @endlink
+ * @brief
+ *
+ * @param seconds - seconds to convert
+ * @param h - ref to hours
+ * @param m - ref to mins
+ * @param s - ref to secs
+ *
+ */
+void secondsToHMS(const uint32_t seconds, uint16_t &h, uint8_t &m, uint8_t &s)
+{
+  uint32_t t = seconds;
+  // remainder seconds
+  s = t % 60;
+  // remainder minutes
+  t = (t - s) / 60;
+  m = t % 60;
+  // remainder hours
+  t = (t - m) / 60;
+  h = t;
+}
+
+int getLineHeight()
+{
+  // return g_lcd.getFontAscent() - g_lcd.getFontDescent(); // Descent is a negative number so we add it to the total
+  return 0;
+}
+
+//  ------------------------------------------------------------------------
+//  Display Functions
+//  ------------------------------------------------------------------------
+
+void drawMenuUnderline()
+{
+  // g_lcd.drawHLine(g_graphicMargin, getLineHeight() + 2, g_lcd.getWidth() - 2 * g_graphicMargin); // Draw a line under the menu name
+}
+
+void drawMenuHeader()
+{
+  // g_lcd.setFontMode(1);
+  // g_lcd.setFont(FONT_3);
+  // g_lcd.setCursor(0, getLineHeight());
+  // g_lcd.printf("%d/%d/%d", 2, 22, 2023);
+  // g_lcd.setCursor(g_lcd.getWidth() - (g_lcd.getMaxCharWidth() * 6) /*nTime.length()*/, getLineHeight());
+  // g_lcd.printf("%d:%d:%d", g_h, g_m, g_s);
+  // g_lcd.drawHLine(0, getLineHeight() + 2, g_lcd.getWidth()); // Draw header underline
+  // g_lcd.sendBuffer();
+} // end drawMenuHeader()
+
+//  ------------------------------------
+//  Encoder handlers
+//  ------------------------------------
+// encoder on change
+void rotate(ESPRotary &r)
+{
+  debugln(r.getPosition());
+}
+
+// on left or right rotation
+void showDirection(ESPRotary &r)
+{
+  debugln(r.directionToString(r.getDirection()));
+}
+
+//  ------------------------------------
+//  encoder button handlers
+//  ------------------------------------
+void tap(Button2 &b)
+{
+  debugln("Tap");
+}
+
+void longClick(Button2 &b)
+{
+  debugln("Button Long Clicked");
+}
+
+void doubleClick(Button2 &b)
+{
+  debugln("Button Double Clicked");
+}
+
+// void tripleClick(Button2 &b)
+// {
+//   debugln("Button Triple Clicked");
+// }
+
+// ===============================================
+// SETUP  SETUP  SETUP  SETUP  SETUP  SETUP  SETUP
+// ===============================================
+
+void setup()
+{
+  beginDebug(DEBUG_BAUD);
+  delay(50);
+  debugln();
+  debugln("Booted");
+
+  r.begin(ENC_CLK, ENC_DT, CLICKS_PER_STEP);
+  r.setChangedHandler(rotate);
+  r.setLeftRotationHandler(showDirection);
+  r.setRightRotationHandler(showDirection);
+
+  b.begin(ENC_BUTTON);
+  b.setLongClickTime(1000);
+  b.setTapHandler(tap);
+  b.setLongClickDetectedHandler(longClick);
+  b.setDoubleClickHandler(doubleClick);
+  // b.setTripleClickHandler(tripleClick);
+  // g_lcd.begin();
+  // g_lcd.clear();
+  // g_lcd.setContrast(contrast);
+
+} // END setup()
+
+// =============================================
+// LOOP  LOOP  LOOP  LOOP  LOOP LOOP  LOOP  LOOP
+// =============================================
+
+void loop()
+{
+  drawMenuHeader();
+  r.loop();
+  b.loop();
+}
