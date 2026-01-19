@@ -1,14 +1,12 @@
-/* DEBUG toggle */
-#define DEBUG 1
 /**
  * @file main.cpp
  * @remarks uSonicTimer
  * @author Kevin Murphy (https://www.SomerledDesign.com)
  * @brief an addition to an old, inexpensive Ultrasonic cleaner to include heating and timing
- * @version 0.2
- * @date 02/10/23
+ * @version 0.4
+ * @date 08/28/24
  *
- * @copyright Copyright (c) 2023 Somerled Design, LLC in Kevin Murphy
+ * @copyright Copyright (c) 2024 Somerled Design, LLC in Kevin Murphy
  *
  *                      GNU GENERAL PUBLIC LICENSE
  *   This program is free software : you can redistribute it and/or modify
@@ -37,7 +35,8 @@
  *
  *   .100 - 01/16/22 - A work in progress
  *   .200 - 01/29/22 - rewrite with u8g2lib as display driver
- *
+ *   .300 - 08/20/24 - rewrite by GROK2.mini
+ *   .400 - 08/28/24 - rewrite of Grok2 code by Kevin Murphy
  *
  * DISCLAIMER:
  *   With this design, including both the hardware & software I offer no guarantee that it is bug
@@ -45,622 +44,801 @@
  *   damage/harm to you, others or property then you are on your own. This work is experimental.
  *
  */
-
-/*
- *  Required I/O:
- *    SPI Nokia 5110
- *      Func          Non i/o     i/o
- *     =====================================
- *      RESET          RST
- *      CS             LOW
- *      D/C                        D4
- *      DIN                        D7(MOSI)
- *      CLK                        D5(SCLK)
- *      VCC            3V3
- *      BL                         D6(MISO)  Backlight PWM
+/**
+ *  === ESP8266 Pinout ===
+ *  --- Available  I/O ---
+ *   •   GPIO0     D3
+ *   •   GPIO1     D10 (TX) \
+ *   •   GPIO3     D9  (RX)  |  If using as inputs don't call Serial.begin()
  *
- *    Rotary Enco     der
- *      Func          Non i/o     i/o
- *     =====================================
- *      ENC_A                      D0
- *      ENC_B                      A0
- *      BUTTON                     D8
+ *   •   GPIO2     D4  (SCL)   \
+ *                               - I2C
+ *   •   GPIO4     D2  (SDA)   /
+ *
+ *   •   GPIO5     D1
+ * 
+ *   ◎   GPIO6     ☞   USED INTERNALLY - DO NOT USE **
+ *   ◎   GPIO7     ☞   USED INTERNALLY - DO NOT USE **
+ *   ◎   GPIO8     ☞   USED INTERNALLY - DO NOT USE **
+ *   ◎   GPIO9     ☞   USED INTERNALLY - DO NOT USE **
+ *   ◎   GPIO10    ☞   USED INTERNALLY - DO NOT USE **
+ *   ◎   GPIO11    ☞   USED INTERNALLY - DO NOT USE **
+ * 
+ *   ●   GPIO12    D6  (MISO) | \
+ *   •   GPIO13    D7  (MOSI) |    S
+ *   •   GPIO14    D5  (SCLK) |     P
+ *   •   GPIO15    D8  (CS)   | /    I
+ *   •   GPIO16    D0  (no interrupt)
+ *   •   ADC0      A0  (Analog Input)
+ *
+ * ----------------------------------------------------------------------------------------
+ *  Required I/O (PCB v1b)
+ *    SPI Nokia 5110
+ *      Func          Non i/o     Digitial     GPIO i/o     ESP12e Pin         Descr.
+ *     =====================================================================================
+ *    1 RESET          RST        RST          -           1                  RESET line
+ *    2 CS             GND        -            -           -                  CHIP SELECT (tied low)
+ *    3 D/C                       D10/TX       GPIO1       22                 DATA|COMMAND
+ *    4 DIN                       D7(MOSI)     GPIO13      7                  MOSI
+ *    5 CLK                       D5(SCLK)     GPIO14      5                  SCLK
+ *    6 VCC            3V
+ *    7 BL                        D4           GPIO2       17                 Backlight PWM
+ *    8 GND
+ *
+ *    Rotary Encoder
+ *      Func          Non i/o     Digitial     GPIO i/o     ESP12e Pin        Descr.
+ *     =====================================================================================
+ *      ROT_ENC_A_PIN             D3           GPIO0       18                 CLK/~PROGRAM
+ *      ROT_ENC_B_PIN             D6           GPIO12      6                  DT
+ *      ROT_ENC_BUTTON_PIN        D9           GPIO3       21                 SW/RX
  *
  *    Relays
- *      Func          Non i/o     i/o
- *     =====================================
- *      TEMP                        D1
- *      TRNSDCR                     D2
+ *      Func          Non i/o     Digitial     GPIO i/o     ESP12e Pin         Descr.
+ *     =====================================================================================
+ *      HEATER_ENABLE_PIN         D2           GPIO4       19                 Heater relay
+ *      DEVICE_ENABLE_PIN         D1           GPIO5       20                 Cleaner relay
  *
  *    Dallas Temp Sensor (DS18B20)
- *      Func          Non i/o     i/o
- *     =====================================
- *      ONE_WIRE_BUS              D3
+ *      Func          Non i/o     Digitial     GPIO i/o     ESP12e Pin         Descr.
+ *     =====================================================================================
+ *      ONE_WIRE_BUS              D0           GPIO16       4
  */
-
-// Still required?
-#include <Arduino.h>
-
-//Rotary Endcoder
+/**
+ *
+    Notes:
+    This code assumes you have the necessary libraries installed. For ESPRotary and Button2, you might need to install them manually or via the Arduino IDE's library manager.
+    The networkSettings() function is left unimplemented as it would require specific details about how you want to handle network connections.
+    The saveSettings() and loadSettings() functions use EEPROM to persist settings across power cycles. Ensure you have enough EEPROM space on your ESP8266 module.
+    The code uses a simple state machine for menu navigation, which should be expanded for more complex interactions or additional menu items.
+    Error handling, especially for temperature sensor readings or network operations, should be added for robustness.
+    Adjust the pin numbers according to your actual hardware setup.
+ */
+/**
+ * GROK2:
+ * Below is a C++ Arduino program tailored for an ESP8266, integrating the
+ * functionalities you've described for a menu-driven countdown timer system
+ * with temperature control and ultrasonic cleaner operation. This program uses
+ * the libraries you've specified and includes additional functionality for
+ * network settings and display adjustments.
+ *
+ */
+#include <ESP8266WiFi.h>
+#include <OneWire.h>
+#include <DallasTemperature.h>
 #include <ESPRotary.h>
 #include <Button2.h>
-
-// Drawing the Display with rectangles and circles and text, oh my
 #include <U8g2lib.h>
+#include <EEPROM.h>
+#include "Ticker.h" // https://github.com/esp8266/Arduino/tree/master/libraries/Ticker
 
-// The Temperature sensor
-#include <DallasTemperature.h>
+#ifdef WITH_GDB
+#include "GDBStub.h"
+#endif
 
-// NTP Time to set RTC
-#include <NTPtimeESP.h>
-#include <sntp.h>
-
-#if DEBUG == 1  // DEBUG START
-#define beginDebug(x) Serial.begin(x)
+#if DEBUG
+#define debugbegin(x) Serial.begin(x)
 #define debug(x) Serial.print(x)
 #define debugln(x) Serial.println(x)
-#define DEBUG_BAUD 9600
 #else
-#define beginDebug(x)
+#define debugbegin(x)
 #define debug(x)
 #define debugln(x)
-#endif // END DEBUG
+#endif // DEBUG
 
-#define FONT_1 u8g2_font_tinytim_tn
-#define FONT_2 u8g2_font_luBS19_tr
-#define FONT_3 u8g2_font_5x7_tf
+// Pin definitions (PCB v1b)
+#define ONE_WIRE_BUS D0 // GPIO16
 
-//NTPtime g_NTPus("us.pool.ntp.org");     // Choose server pool as required
-char const  *ssid = "cletus";                // Set your WiFi SSID
-char const  *password = "soloromeo864";      // Set your WiFi password
+#define CLEANER_PIN D1  // GPIO5
+#define HEATER_PIN D2   // GPIO4
 
+#define ROTARY_PIN1 D3     // GPIO0, CLK/~PROGRAM
+#define ROTARY_PIN2 D6     // GPIO12, DT
+#define ROTARY_BUTTON D9   // GPIO3, SW/RX
 
+#define BACKLIGHT_PIN D4 // GPIO2
 
-/* pins
- *          $$$$$$$\  $$\
- *          $$  __$$\ \__|
- *          $$ |  $$ |$$\ $$$$$$$\   $$$$$$$\
- *          $$$$$$$  |$$ |$$  __$$\ $$  _____|
- *          $$  ____/ $$ |$$ |  $$ |\$$$$$$\
- *          $$ |      $$ |$$ |  $$ | \____$$\
- *          $$ |      $$ |$$ |  $$ |$$$$$$$  |
- *          \__|      \__|\__|  \__|\_______/
- */
-
-// Relays
-// Best to use GPIO 4 and 5 for relays
-#define TRNSDCR_RLY_PIN D1    /*GPIO5*/
-#define HEATER_RLY_PIN  D2    /*GPIO4*/
-
-// Temp sensor data bus
-#define ONE_WIRE_BUS D3 /*GPIO0*/
-
-// NOKIA 5110
-// #define RST_PIN         <-Connect to Reset according to adafruit https://learn.adafruit.com/nokia-5110-3310-monochrome-lcd/wiring-fewer-pins
-// #define CS_PIN          <-Connect to Ground according to adafruit
-#define DC_PIN          D4 /*GPIO2*/
-// #define CLK_PIN        D5 /*GPIO14*/// This should all be handled in the U8G2 class for HW SPI
-#define BACKLIGHT_PIN D6 /*GPIO12*/
-// #define DIN_PIN        D7 /*GPIO13*/// This should all be handled in the U8G2 class for HW SPI
-
-// Rotary Encoder ky-040
-#define ENC_A D0 /*GPIO16*/
-#define ENC_B A0 /*ADC0*/
-#define ENC_BUTTON D8 /*GPIO15*/
-
+#define LCD_SCLK_PIN D5   // GPIO14
+#define LCD_DIN_PIN D7    // GPIO13
+#define LCD_DC_PIN D10    // GPIO1 (TX)
+#define LCD_CS_PIN U8X8_PIN_NONE
+#define LCD_RST_PIN U8X8_PIN_NONE
 // Status LED
 // TODO: maybe use the backlight as a Status?  Pulsing, Flashing, Steady, Dim?
-// #define STATUS_LED_PIN 9
+// #define STATUS_LED_PIN ?
 // bool statusLedOn = false;
 
-// Menu stuff
-int g_menuitem = 1;
+#define CLICKS_PER_STEP 4
+// -------------------------------------------------------------------------
+//  NOKIA 5110 LCD
+// #define sclk_pin D5
+// #define dc_pin D6
+// #define din_pin D7
+// #define cs_pin D8
+// #define rst_pin -1 // as in the Adafruit header...
+//                       physically conn to RST switch
+// -------------------------------------------------------------------------
+// -------------------------------------------------------------------------
 
-int g_frame = 1;
-int g_g_page = 1;
-int g_lastMenuItem = 1;
-
-String g_menuItem1 = "Contrast";
-String g_menuItem2 = "Set Temp";
-String g_menuItem3 = "Set Timer";
-
-boolean backlight = true;
-int contrast = 60;
-int temp = 150;
-int timer = 10;
-
-boolean up = false;
-boolean down = false;
-boolean middle = false;
-
-ESPRotary g_r;
-Button2 g_b;
-
-
-// instantiations
-
-U8G2_PCD8544_84X48_F_4W_HW_SPI g_lcd(U8G2_R0, /* cs=*/D3, /* dc=*/D4, /* reset=*/0); // Nokia 5110 Display hardware defined reset is connected to rst on board
+U8G2_PCD8544_84X48_F_4W_SW_SPI u8g2(
+    U8G2_R0,        /* Rotation 0 = no rotation */
+    LCD_SCLK_PIN,   /* clock */
+    LCD_DIN_PIN,    /* data */
+    LCD_CS_PIN,     /* cs */
+    LCD_DC_PIN,     /* dc */
+    LCD_RST_PIN     /* reset */
+);
 
 // Temp Sensor Data Bus
-//                                   0x28, 0xFF, 0x57, 0x3F, 0x01, 0x16, 0x01, 0xED
-// TODO: is this the correct address
-DeviceAddress thermometerAddress = {0x28, 0xFF, 0x57, 0x3F, 0x01, 0x16, 0x01, 0xED}; // custom array type to hold 64 bit device address
+OneWire oneWire(ONE_WIRE_BUS);
+DallasTemperature sensors(&oneWire);
 
+// TODO: is this the correct address?
+//  address of thermometer on oneWire bus
+//  are they different for each DS18B20?
+//                                  0x28, 0xFF, 0x57, 0x3F, 0x01, 0x16, 0x01, 0xED
+DeviceAddress thermometerAddress; // custom array type to hold 64 bit device address
 
-// Timer settings
-// Timer
-#define TIMER           1000          //...in seconds
-#define THREE_MINUTES   180
-#define EIGHT_MINUTES   480
-#define TEN_MINUTES     600
-#define FIFTEEN_MINUTES 900
-#define TWENTY_MINUTES  1200
-#define THIRTY_MINUTES  1800
-#define SIXTY_MINUTES   3600
-#define NINETY_MINUTES  5400
+// Rotary Encoder and button
+ESPRotary r;
+Ticker t;
+Button2 b;
 
+// Variables
+float currentTemperature = 0;
+uint8_t g_setTemperatureF;   // The set temperature in Fahrenheit
+uint8_t g_timerSetting;      // The timer to be set in minutes
+uint8_t tempOffset = 10;     // Offset in Fahrenheit for heater control
+uint8_t g_contrast;          // The contrast for the display
+uint16_t longPress = 1000;   // one second long press of button
+int16_t last = 0;            // For rotary encoder reading
 
-// long seconds = 136; // just a random seconds to start from for testing
+volatile bool down  = false; // Flags for the encoder
+volatile bool up    = false;
 
-/* Global variables
- *
- *         ______   __            __                  __
- *        /      \ /  |          /  |                /  |
- *       /$$$$$$  |$$ |  ______  $$ |____    ______  $$ |  _______
- *       $$ | _$$/ $$ | /      \ $$      \  /      \ $$ | /       |
- *       $$ |/    |$$ |/$$$$$$  |$$$$$$$  | $$$$$$  |$$ |/$$$$$$$/
- *       $$ |$$$$ |$$ |$$ |  $$ |$$ |  $$ | /    $$ |$$ |$$      \
- *       $$ \__$$ |$$ |$$ \__$$ |$$ |__$$ |/$$$$$$$ |$$ | $$$$$$  |
- *       $$    $$/ $$ |$$    $$/ $$    $$/ $$    $$ |$$ |/     $$/
- *        $$$$$$/  $$/  $$$$$$/  $$$$$$$/   $$$$$$$/ $$/ $$$$$$$/
- *
- *
- */
-int g_lineHeight = 0;
-//strDateTime g_dateTime;
-int g_h = 11;
-int g_m = 59;
-int g_s= 34;
+// State variables
+volatile bool cleanerOn = false; // State of the cleaner
+volatile bool heaterOn = false;  // State of the heater
 
-/*  Useful Functions
- *     $$$$$$$$\                              $$\     $$\
- *     $$  _____|                             $$ |    \__|
- *     $$ |   $$\   $$\ $$$$$$$\   $$$$$$$\ $$$$$$\   $$\   $$$$$$\   $$$$$$$\   $$$$$$$\
- *     $$$$$\ $$ |  $$ |$$  __$$\ $$  _____|\_$$  _|  $$  |$$  __$$\ $$  __$$\  $$/_____|
- *     $$  __|$$ |  $$ |$$ |  $$ |$$ /        $$ |    $$  |$$/   $$ |$$ |  $$|  $$$$$$\
- *     $$ |   $$ |  $$ |$$ |  $$ |$$ |        $$     |$$\  $$|   $$ |$$ |  $$|       $$|
- *     $$ |    $$$$$$  |$$ |  $$  |$$$$$$$\    $$$$  |$$   |$$$$$$| |$$ |  $$ |$$$$$$$ |
- *     \__|    \______/ \__| \__|  \_______|   \____/ \__|  \______/\__|  \__|\_______/
- */
-/**    drawMenuHeader()
- * @author Kevin Murphy (https://www.SomerledDesign.com)
- * @link @endlink
- * @brief Generate the header for the display
- *
- * @param strDateTime &dateTime
- * @param type param
- * @return void
- */
-void drawMenuHeader()
+// Menu structure
+enum MenuItems
 {
-  // do something
-  //.drawFrame( 0, (g_lineHeight + 2), g_lcd.getWidth(), (g_lcd.getHeight() - (g_lineHeight + 2))); // Draw a boarder around the display
-  // g_lcd.clearDisplay();
-  g_lcd.setCursor(0, g_lineHeight);
-  g_lcd.printf("%d/%d/%d", 12, 22, 2023);
-  //g_lcd.setCursor(g_lcd.getWidth() - nTime.length(), g_lineHeight);
-  g_lcd.printf("%d:%d:%d", g_h, g_m, g_s);
-  g_lcd.drawHLine(0, g_lineHeight + 1, g_lcd.getWidth());
-  g_lcd.sendBuffer();
+    START_TIMER,
+    SET_TIMER,
+    SET_TEMP,
+    NETWORK,
+    CONTRAST,
+    MENU_ITEMS_COUNT
+};
+uint8_t g_currentMenu = START_TIMER;
 
-  g_lcd.clearBuffer();
-  g_lcd.setFont(FONT_2);
-  int oldLineHeight = g_lineHeight;
-  g_lineHeight = g_lcd.getAscent() - g_lcd.getDescent();
-
-  g_lcd.setCursor((g_lcd.getWidth() / 2 ) - (2 * 9), g_lineHeight + oldLineHeight);
-  g_lcd.printf("79");
-
-  g_lcd.sendBuffer();
-
-  g_lineHeight = oldLineHeight;
-
-} // end drawMenuHeader()
-
-// void drawMenu()
-// {
-//   int g_page = 1;
-//   // drawMenuHeader(g_dateTime); // put the Date <left and Time >right in the header
-//   if (g_page == 1)
-//   {
-//     g_lcd.clearBuffer();
-
-//     g_lcd.setFontMode(1);
-//     g_lcd.setFont(u8g2_font_profont15_tf);
-//     g_lcd.setCursor(20, 0);
-//     g_lcd.clearDisplay();
-//     g_lcd.setFontMode(1);
-
-//     g_lcd.print("MAIN MENU");
-//     g_lcd.drawHLine(3, (g_lineHeight + 1), 0x4E);
-//     g_lcd.sendBuffer();
-
-    // if (menuitem == 1 && frame == 1)
-    // {
-    //   displayMenuItem(menuItem1, 15, true);
-    //   displayMenuItem(menuItem2, 25, false);
-    //   displayMenuItem(menuItem3, 35, false);
-    // }
-    // else if (menuitem == 2 && frame == 1)
-    // {
-    //   displayMenuItem(menuItem1, 15, false);
-    //   displayMenuItem(menuItem2, 25, true);
-    //   displayMenuItem(menuItem3, 35, false);
-    // }
-    // else if (menuitem == 3 && frame == 1)
-    // {
-    //   displayMenuItem(menuItem1, 15, false);
-    //   displayMenuItem(menuItem2, 25, false);
-    //   displayMenuItem(menuItem3, 35, true);
-    // }
-
-    // }
-    // .display();
-
-    // else if (g_page == 2 && menuitem == 1)
-    // {
-    //   displayIntMenug_page(menuItem1, temp);
-    // }
-
-    // else if (g_page == 2 && menuitem == 2)
-    // {
-    //   displayIntMenug_page(menuItem2, timer);
-    // }
-    // else if (g_page == 2 && menuitem == 3)
-    // {
-    //   displayIntMenug_page(menuItem3, contrast);
-  // }
-// } // end drawMenu()
-
-// void resetDefaults()
-//   {
-//     contrast = 60;
-//     setContrast();
-//     backlight = true;
-//     turnBacklightOn();
-//   } end resetDefaults()
-
-void setContrast()
-{
-  g_lcd.setContrast(contrast);
-  g_lcd.display();
-} // end setContrast()
-
-void turnBacklightOn()
-{
-  digitalWrite(BACKLIGHT_PIN, LOW);
-} // end turnBacklightOn()
-
-void turnBacklightOff()
-{
-  digitalWrite(BACKLIGHT_PIN, HIGH);
-} // end turnBacklightOff()
-
-// void timerIsr()
-// {
-//   encoder->service();
-// }
-
-// void displayIntMenug_page(String menuItem, int value)
-//   {
-//     display.setTextSize(1);
-//     display.clearDisplay();
-//     display.setTextColor(BLACK, WHITE);
-//     display.setCursor(15, 0);
-//     display.print(menuItem);
-//     display.drawFastHLine(0, 10, 83, BLACK);
-//     display.setCursor(5, 15);
-//     display.print("Value");
-//     display.setTextSize(2);
-//     display.setCursor(5, 25);
-//     display.print(value);
-//     display.setTextSize(2);
-//     display.display();
-//   }
-
-// void displayStringMenug_page(String menuItem, String value)
-//   {
-//     display.setTextSize(1);
-//     display.clearDisplay();
-//     display.setTextColor(BLACK, WHITE);
-//     display.setCursor(15, 0);
-//     display.print(menuItem);
-//     display.drawFastHLine(0, 10, 83, BLACK);
-//     display.setCursor(5, 15);
-//     display.print("Value");
-//     display.setTextSize(2);
-//     display.setCursor(5, 25);
-//     display.print(value);
-//     display.setTextSize(2);
-//     display.display();
-//   }
-
-void displayMenuItem(String item, int position, boolean selected)
-{
-  if (selected)
-  {
-    g_lcd.setFontMode(2);
-  }
-  else
-  {
-    g_lcd.setFontMode(1);
-  }
-  g_lcd.setCursor(0, position);
-  g_lcd.print(">" + item);
-}
-
-// void readRotaryEncoder()
-//   {
-//     value += encoder->getValue();
-
-//     if (value / 2 > last)
-//     {
-//       last = value / 2;
-//       down = true;
-//       delay(150);
-//     }
-//     else if (value / 2 < last)
-//     {
-//       last = value / 2;
-//       up = true;
-//       delay(150);
-//     }
-//   }
-
-// asm("sbi %0, %1 \n"
-//         :
-//         : "I"(_SFR_IO_ADDR(PIND)), "I"(PIND5));
-
-/**
- * @author guix
- * @link https://forum.arduino.cc/t/convert-seconds-variable-into-hours-minutes-seconds/273112 @endlink
- * @brief
- *
- * @param seconds - seconds to convert
- * @param h - ref to hours
- * @param m - ref to mins
- * @param s - ref to secs
- *
- */
-void secondsToHMS(const uint32_t seconds, uint16_t &h, uint8_t &m, uint8_t &s)
-{
-  uint32_t t = seconds;
-  // remainder seconds
-  s = t % 60;
-  // remainder minutes
-  t = (t - s) / 60;
-  m = t % 60;
-  // remainder hours
-  t = (t - m) / 60;
-  h = t;
-}
-
-/**    connectToWiFi()
-   * @author Kevin Murphy (https://www.SomerledDesign.com)
-   * @link @endlink
-   * @brief implement a wifi connection on the ESP8266
-   *
-   * @param *ssid
-   * @param *password
-   */
-  void connectToWiFi()
-{
-
-    // Connect to WiFi Network
-    debugln();
-    debugln();
-    debug("Connecting to WiFi");
-    debug(" ...");
-    WiFi.begin(ssid, password);
-    int retries = 0;
-    while ((WiFi.status() != WL_CONNECTED) && (retries < 15))
-    {
-      retries++;
-      yield();
-      delay(500);
-      debug(".");
-    }
-    if (retries > 14)
-    {
-      debugln(F("WiFi connection FAILED"));
-    }
-    if (WiFi.status() == WL_CONNECTED)
-    {
-      debugln(F("WiFi connected!"));
-      debugln("IP address: ");
-      debugln(WiFi.localIP());
-    }
-    debugln(F("Setup ready"));
-
-    yield();
-}   // end connectToWiFi()
-
-
-// ===============================================
-// SETUP  SETUP  SETUP  SETUP  SETUP  SETUP  SETUP
-// ===============================================
+// Function definitions
+void startTimerPage();
+void setTimerSubmenu();
+void setTemperatureSubmenu();
+void networkSettings();
+void adjustContrast();
+void displayMenu();
+void saveSettings();
+void loadSettings();
+void handleLoop();
+void readRotaryEncoder();
+void turnOnHeater();
+void turnOffHeater();
+void turnOnCleaner();
+void turnOffCleaner();
+void turnOnBacklight();
+void turnOffBacklight();
 
 void setup()
 {
-    beginDebug(DEBUG_BAUD);
-        debugln();
-    debugln("Booted");
-    connectToWiFi();
-    yield();
+    debugbegin(115200);
+    debug("Entered setup()...");
+
+    // Initialize EEPROM for saving settings
+    ///////////////////////////////////////////////////////////////
+    EEPROM.begin(512);
+
+    // delay(4000);
+
+    loadSettings(); // Load settings from EEPROM
+
+    // Initialize display
+    ///////////////////////////////////////////////////////////////
+    u8g2.begin();
+    u8g2.setContrast(g_contrast);
+
+    digitalWrite(BACKLIGHT_PIN, LOW); // turn off the backlight
+
+    // Initialize temperature sensor
+    ///////////////////////////////////////////////////////////////
+    sensors.begin();
+
+    // Initialize rotary encoder
+    ///////////////////////////////////////////////////////////////
+    r.begin(ROTARY_PIN1, ROTARY_PIN2, CLICKS_PER_STEP);
+    last = r.getPosition();
+    // encoder.setChangedHandler(rotate);
+    // encoder.setLeftRotationHandler(rotate);
+    // encoder.setRightRotationHandler(rotate);|
+
+    // set different limits based on menu item
+    // for the secondary screen being shown
+    // encoder.setLowerOverflowHandler(lower);
+    // encoder.setUpperOverflowHandler(upper);
+
+    // Initialize button
+    ///////////////////////////////////////////////////////////////
+    b.begin(ROTARY_BUTTON);
+    // set click handler callback used in the main menu
+    // button.setClickHandler(buttonClicked);
+    // button.setLongClickHandler(buttonLongPress);         // will only be called after the button has been released.
+
+    // Initialize ticker
+    ///////////////////////////////////////////////////////////////
+    t.attach_ms(10, handleLoop); // Call handleLoop every 10ms
+
+    // Initialize pins
+    ///////////////////////////////////////////////////////////////
+
     pinMode(BACKLIGHT_PIN, OUTPUT);
-    turnBacklightOn();
+    pinMode(HEATER_PIN, OUTPUT);
+    pinMode(CLEANER_PIN, OUTPUT);
+    digitalWrite(HEATER_PIN, LOW);
+    digitalWrite(CLEANER_PIN, LOW);
 
-    // g_dateTime = g_NTPus.getNTPtime(4, 2);
+    // Read initial temperature
+    sensors.requestTemperatures();
+    currentTemperature = sensors.getTempFByIndex(0); // TODO: get address of sensor and use that instead
 
-    g_lcd.begin();
-    g_lcd.clear();
-    g_lcd.setContrast(contrast);
-    g_lcd.setFontMode(1);
-    g_lcd.setFont(FONT_3);
+    // TODO: setup wifi
+    // create a secret.h file as in nightdriver by Dave Plummer
 
-    g_lineHeight = g_lcd.getFontAscent() - g_lcd.getFontDescent(); // Descent is a negative number so we add it to the total
+    // TODO: setup ntp
+    // incorporate easy NTP TZ DST.cpp
+
+    // TODO: setup rtc
+    // incorporate easy NTP TZ DST.cpp
+
+    debugln("...setup Complete.");
 }
-
-// =============================================
-// LOOP  LOOP  LOOP  LOOP  LOOP LOOP  LOOP  LOOP
-// =============================================
 
 void loop()
 {
-  drawMenuHeader();
-  //g_r.loop();
-  //g_b.loop();
-  // if (up && g_page == 1) // We have turned the Rotary Encoder Counter Clockwise
-  // {
 
-  //   up = false;
-  //   if (menuitem == 3 && frame == 1)
-  //   {
-  //     menuitem--;
-  //   }
+    debugln("Entering loop()...");
 
-  //   if (menuitem == 2 && frame == 1)
-  //   {
-  //     menuitem--;
-  //   }
-  //   if (menuitem == 1 && frame == 1)
-  //   {
-  //     menuitem=3;
-  //   }
-  //   lastMenuItem = menuitem;
-  //   menuitem--;
-  //   if (menuitem == 0)
-  //   {
-  //     menuitem = 1;
-  //   }
-  // }
-  // else if (up && g_page == 2 && menuitem == 1)
-  // {
-  //   up = false;
-  //   contrast--;
-  //   setContrast();
-  // }
-  // else if (up && g_page == 2 && menuitem == 2)
-  // {
-  //   up = false;
-  //   volume--;
-  // }
-  // else if (up && g_page == 2 && menuitem == 3)
-  // {
-  //   up = false;
-  //   selectedLanguage--;
-  //   if (selectedLanguage == -1)
-  //   {
-  //     selectedLanguage = 2;
-  //   }
-  // }
-  // else if (up && g_page == 2 && menuitem == 4)
-  // {
-  //   up = false;
-  //   selectedDifficulty--;
-  //   if (selectedDifficulty == -1)
-  //   {
-  //     selectedDifficulty = 1;
-  //   }
-  // }
+    displayMenu();
 
-  // if (down && g_page == 1) // We have turned the Rotary Encoder Clockwise
-  // {
+    // debug("displayMenu complete...");
 
-  //   down = false;
-  //   if (menuitem == 3 && lastMenuItem == 2)
-  //   {
-  //     frame++;
-  //   }
-  //   else if (menuitem == 4 && lastMenuItem == 3)
-  //   {
-  //     frame++;
-  //   }
-  //   else if (menuitem == 5 && lastMenuItem == 4 && frame != 4)
-  //   {
-  //     frame++;
-  //   }
-  //   lastMenuItem = menuitem;
-  //   menuitem++;
-  //   if (menuitem == 7)
-  //   {
-  //     menuitem--;
-  //   }
-  // }
-  // else if (down && g_page == 2 && menuitem == 1)
-  // {
-  //   down = false;
-  //   contrast++;
-  //   setContrast();
-  // }
-  // else if (down && g_page == 2 && menuitem == 2)
-  // {
-  //   down = false;
-  //   volume++;
-  // }
-  // else if (down && g_page == 2 && menuitem == 3)
-  // {
-  //   down = false;
-  //   selectedLanguage++;
-  //   if (selectedLanguage == 3)
-  //   {
-  //     selectedLanguage = 0;
-  //   }
-  // }
-  // else if (down && g_page == 2 && menuitem == 4)
-  // {
-  //   down = false;
-  //   selectedDifficulty++;
-  //   if (selectedDifficulty == 2)
-  //   {
-  //     selectedDifficulty = 0;
-  //   }
-  // }
+    readRotaryEncoder();
 
-  // if (middle) // Middle Button is Pressed
-  // {
-  //   middle = false;
+    // debug("rotaryEncoder has been read...");
 
-  //   if (g_page == 1 && menuitem == 3) // Set Timer
-  //   {
-  //     if (backlight)
-  //     {
-  //       backlight = false;
-  //       menuItem5 = "Light: OFF";
-  //       turnBacklightOff();
-  //     }
-  //     else
-  //     {
-  //       backlight = true;
-  //       menuItem5 = "Light: ON";
-  //       turnBacklightOn();
-  //     }
-  //   }
+    turnOnBacklight();
 
-  //   if (g_page == 1 && menuitem == 6) // Reset
-  //   {
-  //     resetDefaults();
-  //   }
+    // handle encoder events on various menuItems
+    ////////////////////////////////////////////
+    if (down)
+    {
+        debug("down rotate...");
 
-  //   else if (g_page == 1 && menuitem <= 4)
-  //   {
-  //     g_page = 2;
-  //   }
-  //   else if (g_page == 2)
-  //   {
-  //     g_page = 1;
-  //   }
-  // }
+        down = false;
+        g_currentMenu = (g_currentMenu + 1) % MENU_ITEMS_COUNT;
+    } // wrap around to first menu item when going down
+    
+    if (up)
+    {
+        debug("up rotate...");
+        up = false;
+        g_currentMenu = (g_currentMenu + MENU_ITEMS_COUNT - 1) % MENU_ITEMS_COUNT;
+    } // wrap around to last menu item when going up
+
+    // handle button events on various menuItems
+    ////////////////////////////////////////////
+
+    if (b.wasPressed())
+    {
+        if (b.wasPressedFor() > longPress && g_currentMenu == START_TIMER)
+        {
+
+            debug("b.waspressfor longpress on START_TIMER menuitem...");
+
+            startTimerPage();
+        }
+        else if (b.wasPressedFor() > longPress && g_currentMenu != START_TIMER)
+        {
+            // do nothing
+            // No...wait. Do this - If backlight is off, turn it on.
+
+            debugln("b.wasPressedFor shortpress and NOT on START_TIMER menuitem");
+            if (digitalRead(BACKLIGHT_PIN) == LOW)
+            {
+                digitalWrite(BACKLIGHT_PIN, HIGH);
+            }
+            // and if backlight is on, turn it off.
+            else
+            {
+                digitalWrite(BACKLIGHT_PIN, LOW);
+            }
+        }
+
+        // click press
+        // Switch on the selected menu item
+
+        switch (g_currentMenu)
+        {
+        case START_TIMER:
+            // wasn't a long press so do nothing
+            break;
+        case SET_TIMER:
+            setTimerSubmenu();
+            break;
+        case SET_TEMP:
+            setTemperatureSubmenu();
+            break;
+        case NETWORK:
+            networkSettings();
+            break;
+        case CONTRAST:
+            adjustContrast();
+            break;
+        default:
+            // do nothing (how did we get here?)
+            break;
+        }
+        debugln("Loop complete.");
+    }
 }
 
+/**
+ * @brief Shows the timer page
+ *
+ * This function is called when the user selects the "Start Timer"
+ * menu item. It will display the timer counting down and
+ * control the heater and ultrasonic cleaner. The user can
+ * exit the timer page by pressing the button.
+ */
+void startTimerPage()
+{
+    unsigned long startTime = millis();
+    while (true)
+    {
+        handleLoop();
+        unsigned long currentTime = millis();
+        int32_t remainingTime = static_cast<int32_t>(g_timerSetting) * 60 -
+                                static_cast<int32_t>((currentTime - startTime) / 1000);
 
+        if (remainingTime <= 0)
+        {
+            turnOffCleaner();
+            turnOffHeater();
+            break;
+        }
+
+        sensors.requestTemperatures();
+        currentTemperature = sensors.getTempFByIndex(0);
+
+        if (currentTemperature < (g_setTemperatureF - tempOffset))
+        {
+            turnOnHeater();
+            turnOffCleaner();
+        }
+        else
+        {
+            turnOffHeater();
+            turnOnCleaner();
+        }
+
+        u8g2.clearBuffer();
+        u8g2.setFont(u8g2_font_6x10_tf);
+        u8g2.setCursor(0, 10);
+        u8g2.print("Time Left: ");
+        u8g2.print(remainingTime / 60);
+        u8g2.print(":");
+        if ((remainingTime % 60) < 10)
+        {
+            u8g2.print("0");
+        }
+        u8g2.print(remainingTime % 60);
+        u8g2.setCursor(0, 30);
+        u8g2.print("Temp: ");
+        u8g2.print(currentTemperature);
+        u8g2.print("F / ");
+        u8g2.print(g_setTemperatureF);
+        u8g2.print("F");
+        u8g2.sendBuffer();
+
+        if (b.wasPressedFor() > longPress)
+        {
+            break;
+        }
+    }
+    turnOffCleaner();
+    turnOffHeater();
+}
+
+/**
+ * @brief Shows the timer selection submenu
+ *
+ * The user can cycle through the available preset times (5, 10, 15, 20, 25, 30 minutes)
+ * by rotating the encoder. The selected time is displayed on the screen.
+ * The user can confirm the selection by pressing the encoder button, which will
+ * save the new setting and exit the menu.
+ */
+void setTimerSubmenu()
+{
+    static const uint8_t presets[] = {3, 8, 10, 15, 20, 30, 60};
+    const uint8_t presetsCount = sizeof(presets) / sizeof(presets[0]);
+    uint8_t selectedIndex = 0;
+    for (uint8_t i = 0; i < presetsCount; i++)
+    {
+        if (presets[i] == g_timerSetting)
+        {
+            selectedIndex = i;
+            break;
+        }
+    }
+    while (true)
+    {
+        handleLoop();
+        readRotaryEncoder();
+        u8g2.clearBuffer();
+        u8g2.setFont(u8g2_font_6x10_tf);
+        u8g2.setCursor(0, 10);
+        u8g2.print("Set Timer: ");
+        u8g2.print(presets[selectedIndex]);
+        u8g2.print(" min");
+        u8g2.sendBuffer();
+
+        if (down)
+        {
+            down = false;
+            selectedIndex = (selectedIndex + 1) % presetsCount;
+        }
+        else if (up)
+        {
+            up = false;
+            selectedIndex = (selectedIndex + presetsCount - 1) % presetsCount;
+        }
+
+        if (b.wasPressed())
+        {
+            g_timerSetting = presets[selectedIndex];
+            saveSettings();
+            break;
+        }
+    }
+}
+
+/**
+ * @brief Shows the temperature selection submenu
+ *
+ * The user can cycle through the three digits of the temperature by rotating the encoder.
+ * The selected digit is highlighted on the screen.
+ * The user can confirm the selection by pressing the encoder button, which will
+ * save the new setting and exit the menu.
+ * Holding the encoder button down for more than 1 second will also save and exit.
+ */
+void setTemperatureSubmenu()
+{
+    uint8_t cursorPosition = 0;
+    /*
+     * This line of code is initializing an array  of 3 unsigned 8-bit
+     * integers (uint8_t digits[3]) with the individual digits of the
+     * temperature value stored in g_setTemperatureF.
+     *
+     * Here's a breakdown of how it's done:
+     *
+     * g_setTemperatureF % 10 gets the last digit (ones place)of the
+     * temperature value.
+     * (g_setTemperatureF / 10) % 10 gets the middle digit (tens place)
+     * of the temperature value. The division by 10 shifts the digits
+     * one place to the right, and then the modulo 10 operation gets
+     * the last digit of the result, which is the original tens place.
+     * g_setTemperatureF / 100 gets the first digit (hundreds place)
+     * of the temperature value. The division by 100 shifts the digits
+     * two places to the right.
+     * For example, if g_setTemperatureF is 123, the array digits would
+     * be initialized with the values {3, 2, 1}.
+     *
+     */
+
+    uint8_t digits[3] = {
+        static_cast<uint8_t>(g_setTemperatureF / 100),
+        static_cast<uint8_t>((g_setTemperatureF / 10) % 10),
+        static_cast<uint8_t>(g_setTemperatureF % 10)};
+
+    while (true)
+    {
+        handleLoop();
+        readRotaryEncoder();
+        u8g2.clearBuffer();
+        u8g2.setFont(u8g2_font_6x10_tf);
+        u8g2.setCursor(0, 10);
+        u8g2.print("Set Temp: ");
+        for (uint8_t i = 0; i < 3; i++)
+        {
+            if (i == cursorPosition)
+            {
+                u8g2.setDrawColor(1);
+                u8g2.drawBox((i + 1) * 10, 10, 10, 10);
+                u8g2.setDrawColor(0);
+            }
+            u8g2.print(digits[i]);
+        }
+        u8g2.print("F");
+        u8g2.sendBuffer();
+
+        if (down)
+        {
+            down = false;
+            digits[cursorPosition] = (digits[cursorPosition] + 1) % 10;
+        }
+        else if (up)
+        {
+            up = false;
+            digits[cursorPosition] = (digits[cursorPosition] - 1 + 10) % 10;
+        }
+
+        // move the cursor position
+        if (b.wasPressed())
+        {
+            cursorPosition = (cursorPosition + 1) % 3;
+        }
+
+        // long press will save and exit
+        if (b.wasPressedFor() > longPress)
+        {
+            g_setTemperatureF = digits[0] * 100 + digits[1] * 10 + digits[2];
+            saveSettings();
+            break;
+        }
+    }
+}
+
+/**
+ * @brief Implementation for network settings
+ *
+ * This function is called when the network menu option is selected.
+ * It should handle the network settings.
+ *
+ * @todo Implement network settings
+ */
+void networkSettings()
+{
+    // Implementation for network settings
+    while (true)
+    {
+        handleLoop();
+        if (b.wasPressed())
+        {
+            saveSettings();
+            break;
+        }
+    }
+}
+
+/**
+ * @brief Adjusts the display contrast
+ *
+ * Allows the user to cycle through contrast settings with the rotary encoder.
+ * The selected contrast is highlighted on the display.
+ * When the user presses the button, the current contrast is saved and the menu exits.
+ */
+void adjustContrast()
+{
+    while (true)
+    {
+        handleLoop();
+        readRotaryEncoder();
+        u8g2.clearBuffer();
+        u8g2.setFont(u8g2_font_6x10_tf);
+        u8g2.setCursor(0, 10);
+        u8g2.print("Contrast: ");
+        u8g2.print(g_contrast);
+        u8g2.sendBuffer();
+
+        if (up)
+        {
+            up = false;
+            g_contrast = min(g_contrast + 1, 255);
+        }
+        else if (down)
+        {
+            down = false;
+            g_contrast = max(g_contrast - 1, 0);
+        }
+        u8g2.setContrast(g_contrast);
+
+        // long press will save and exit
+        if (b.wasPressedFor() > longPress)
+        {
+            saveSettings();
+            break;
+        }
+    }
+}
+
+/**
+ * @brief Displays the main menu
+ *
+ * Clears the display, sets the font to u8g2_font_6x10_tf, and draws the menu items
+ * on the display. The currently selected item is highlighted with a white box.
+ */
+void displayMenu()
+{
+    u8g2.clearBuffer();
+    u8g2.setFont(u8g2_font_6x10_tf);
+    for (uint8_t i = 0; i < MENU_ITEMS_COUNT; i++)
+    {
+        u8g2.setCursor(0, (i + 1) * 10);
+        if (i == g_currentMenu)
+        {
+            u8g2.setDrawColor(1);
+            u8g2.drawBox(0, i * 10, 84, 10);
+            u8g2.setDrawColor(0);
+        }
+        else
+        {
+            u8g2.setDrawColor(1);
+        }
+        switch (i)
+        {
+        case START_TIMER:
+            u8g2.print("Start Timer");
+            break;
+        case SET_TIMER:
+            u8g2.print("Set Timer");
+            break;
+        case SET_TEMP:
+            u8g2.print("Set Temp");
+            break;
+        case NETWORK:
+            u8g2.print("Network");
+            break;
+        case CONTRAST:
+            u8g2.print("Contrast");
+            break;
+        }
+    }
+    u8g2.sendBuffer();
+}
+
+/**
+ * @brief Handles the loop tasks for the rotary encoder and button.
+ *
+ * Call this method repeatedly to handle the rotary encoder and button events.
+ */
+void handleLoop()
+{
+    r.loop();
+    b.loop();
+}
+
+void readRotaryEncoder()
+{
+    int16_t position = r.getPosition();
+
+    if (position > last)
+    {
+        last = position;
+        down = true;
+    }
+    else if (position < last)
+    {
+        last = position;
+        up = true;
+    }
+}
+
+// =================================================================
+// =================================================================
+// Device control functions
+// -----------------------------
+/**
+ * @brief Turns on the heater
+ *
+ * This function will turn on the heater by setting the HEATER_PIN
+ * high and setting the heaterOn flag to true.
+ */
+void turnOnHeater()
+{
+    // Turn on the heater
+    digitalWrite(HEATER_PIN, HIGH);
+    heaterOn = true;
+}
+/**
+ * @brief Turns off the heater
+ *
+ * This function will turn off the heater by setting the HEATER_PIN
+ * low and setting the heaterOn flag to false.
+ */
+void turnOffHeater()
+{
+    // Turn off the heater
+    digitalWrite(HEATER_PIN, LOW);
+    heaterOn = false;
+}
+
+void turnOnCleaner()
+{
+    digitalWrite(CLEANER_PIN, HIGH);
+    cleanerOn = true;
+}
+
+void turnOffCleaner()
+{
+    digitalWrite(CLEANER_PIN, LOW);
+    cleanerOn = false;
+}
+
+// ===============================================================
+// ===============================================================
+// EEPROM functions
+// ----------------
+void saveSettings()
+{
+    EEPROM.put(0x0, g_setTemperatureF);
+    EEPROM.put(0x8, g_timerSetting);
+    EEPROM.put(0x10, g_contrast);
+    EEPROM.commit();
+}
+/// @brief Load settings from EEPROM.  Apply defaults if not found
+void loadSettings()
+{
+
+    debug("\tEntered loadSettings()...");
+
+    EEPROM.get(0, g_setTemperatureF);
+    EEPROM.get(8, g_timerSetting);
+    EEPROM.get(10, g_contrast);
+
+    if (g_setTemperatureF == 0)
+    {
+        g_setTemperatureF = 72;
+    }
+    if (g_timerSetting == 0)
+    {
+        g_timerSetting = 10;
+    }
+    if (g_contrast == 0)
+    {
+        g_contrast = 64;
+    }
+    // u8g2.setContrast(g_contrast); // this is done in setup after calling loadSettings()
+
+    debug("\texiting loadSettings()");
+}
+
+void turnOffBacklight()
+{
+    digitalWrite(BACKLIGHT_PIN, LOW);
+    debugln("Backlight off");
+}
+
+void turnOnBacklight()
+{
+    digitalWrite(BACKLIGHT_PIN, HIGH);
+    debugln("Backlight on");
+}
