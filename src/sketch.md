@@ -11,13 +11,11 @@ Create a workflow with [github](https://www.github.com) or [trello](https://www.
 ## task breakdown
 
 1.  Display splash screen
-2.  Connect to WiFi
-3.  Update RTC through SNTP
-4.  Display Menu
-5.  Wait for input
-    5.1 Redraw menu with input
-
-6.  Display input page
+2.  Load from EEPROM
+3.  Display Menu
+4.  Wait for input
+5.  Display input page
+5.1 Redraw menu with input
    
 [specs](uSonicTimerspecifications.txt) submitted to ChatGPT
 
