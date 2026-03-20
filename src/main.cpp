@@ -45,37 +45,48 @@
  *
  */
 /**
+ *  Physical pins listed for comparison to pcb.
+ *  in version 1b pcb 2/2023 the CS is connected to ground
+ *  GPIO15 is used for
+ *
+ *
  *  === ESP8266 Pinout ===
+ *  --- Power/Reset ---
+ *                    Physical
+ *                      PIN
+ *   •   Vcc             8
+ *   •   GND            15
+ *   •   RST             1
+ *
  *  --- Available  I/O ---
- *   •   GPIO0     D3
- *   •   GPIO1     D10 (TX) \
- *   •   GPIO3     D9  (RX)  |  If using as inputs don't call Serial.begin()
+ *   •   GPIO0     D3   18
+ *   •   GPIO1     D10  22  (TXD0) \
+ *   •   GPIO3     D9   21  (RXD0)  |  If using as inputs don't call Serial.begin()
+ *   •   GPIO2     D4   17  (TXD1)
  *
- *   •   GPIO2     D4  (SCL)   \
- *                               - I2C
- *   •   GPIO4     D2  (SDA)   /
+ *   •   GPIO4     D2   19  (SDA)   \
+ *                                   }--> I2C
+ *   •   GPIO5     D1   20  (SCL)   /
  *
- *   •   GPIO5     D1
- * 
- *   ◎   GPIO6     ☞   USED INTERNALLY - DO NOT USE **
- *   ◎   GPIO7     ☞   USED INTERNALLY - DO NOT USE **
- *   ◎   GPIO8     ☞   USED INTERNALLY - DO NOT USE **
- *   ◎   GPIO9     ☞   USED INTERNALLY - DO NOT USE **
- *   ◎   GPIO10    ☞   USED INTERNALLY - DO NOT USE **
- *   ◎   GPIO11    ☞   USED INTERNALLY - DO NOT USE **
- * 
- *   ●   GPIO12    D6  (MISO) | \
- *   •   GPIO13    D7  (MOSI) |    S
- *   •   GPIO14    D5  (SCLK) |     P
- *   •   GPIO15    D8  (CS)   | /    I
- *   •   GPIO16    D0  (no interrupt)
- *   •   ADC0      A0  (Analog Input)
+ *   ◎   GPIO6     ☞    14  USED INTERNALLY - DO NOT USE **
+ *   ◎   GPIO7     ☞    10  USED INTERNALLY - DO NOT USE **
+ *   ◎   GPIO8     ☞    13  USED INTERNALLY - DO NOT USE **
+ *   ◎   GPIO9     ☞    11  USED INTERNALLY - DO NOT USE **
+ *   ◎   GPIO10    ☞    12  USED INTERNALLY - DO NOT USE **
+ *   ◎   GPIO11    ☞     9  USED INTERNALLY - DO NOT USE **
+ *
+ *   •   GPIO14    D5    5  (SCLK) | \ S
+ *   ●   GPIO12    D6    6  (MISO) |  |  P
+ *   •   GPIO13    D7    7  (MOSI) |  |    I
+ *   •   GPIO15    D8   16  (CS)   | /      ..
+ *   •   GPIO16    D0    4  (no interrupt)
+ *   •   ADC0      A0    2  (Analog Input)
  *
  * ----------------------------------------------------------------------------------------
  *  Required I/O (PCB v1b)
  *    SPI Nokia 5110
- *      Func          Non i/o     Digitial     GPIO i/o     ESP12e Pin         Descr.
- *     =====================================================================================
+ *      Func          Non i/o     Digitial     GPIO i/o     ESP12e Pin         Descr.                   Ω out
+ *     =========================================================================================================
  *    1 RESET          RST        RST          -           1                  RESET line
  *    2 CS             GND        -            -           -                  CHIP SELECT (tied low)
  *    3 D/C                       D10/TX       GPIO1       22                 DATA|COMMAND
@@ -86,11 +97,11 @@
  *    8 GND
  *
  *    Rotary Encoder
- *      Func          Non i/o     Digitial     GPIO i/o     ESP12e Pin        Descr.
- *     =====================================================================================
- *      ROT_ENC_A_PIN             D3           GPIO0       18                 CLK/~PROGRAM
- *      ROT_ENC_B_PIN             D6           GPIO12      6                  DT
- *      ROT_ENC_BUTTON_PIN        D9           GPIO3       21                 SW/RX
+ *      Func          Non i/o     Digitial     GPIO i/o     ESP12e Pin        Descr.         Ω out
+ *     ===========================================================================================
+ *      ROT_ENC_A_PIN             D3           GPIO0       18                 CLK/~PROGRAM     ✓
+ *      ROT_ENC_B_PIN             D6           GPIO12      6                  DT               ✓
+ *      ROT_ENC_BUTTON_PIN        D9           GPIO3       21                 SW(/RX)           ✓
  *
  *    Relays
  *      Func          Non i/o     Digitial     GPIO i/o     ESP12e Pin         Descr.
@@ -102,6 +113,15 @@
  *      Func          Non i/o     Digitial     GPIO i/o     ESP12e Pin         Descr.
  *     =====================================================================================
  *      ONE_WIRE_BUS              D0           GPIO16       4
+ *
+ *    ICSP Header (5 pin pogo pads)
+ *      Func             Header pin    to -->                       ESP12e Pin    Ω out
+ *     ===========================================================================================
+ *     ICSP_GND_HDR_PIN      1        GND plane                       xx           ✓
+ *     ICSP_RTS_HDR_PIN      2        Auto-Reset ckt.  (b Q3)         xx           ✓
+ *     ICSP_TX_HDR_PIN       3        (this is tx in)                 22           ✓
+ *     ICSP_RX_HDR_PIN       4        (this is _tx_ out)              21           ✓
+ *     ICSP_DRT_HDR_PIN      5        Auto-Reset ckt.  (b Q2)         xx           ✓
  */
 /**
  *
@@ -113,16 +133,7 @@
     Error handling, especially for temperature sensor readings or network operations, should be added for robustness.
     Adjust the pin numbers according to your actual hardware setup.
  */
-/**
- * GROK2:
- * Below is a C++ Arduino program tailored for an ESP8266, integrating the
- * functionalities you've described for a menu-driven countdown timer system
- * with temperature control and ultrasonic cleaner operation. This program uses
- * the libraries you've specified and includes additional functionality for
- * network settings and display adjustments.
- *
- */
-#include <ESP8266WiFi.h>
+
 #include <OneWire.h>
 #include <DallasTemperature.h>
 #include <ESPRotary.h>
@@ -225,7 +236,6 @@ enum MenuItems
     START_TIMER,
     SET_TIMER,
     SET_TEMP,
-    NETWORK,
     CONTRAST,
     MENU_ITEMS_COUNT
 };
@@ -235,7 +245,6 @@ uint8_t g_currentMenu = START_TIMER;
 void startTimerPage();
 void setTimerSubmenu();
 void setTemperatureSubmenu();
-void networkSettings();
 void adjustContrast();
 void displayMenu();
 void saveSettings();
@@ -359,54 +368,41 @@ void loop()
 
     if (b.wasPressed())
     {
-        if (b.wasPressedFor() > longPress && g_currentMenu == START_TIMER)
+        const bool isLongPress = b.wasPressedFor() > longPress;
+        if (isLongPress)
         {
-
-            debug("b.waspressfor longpress on START_TIMER menuitem...");
-
-            startTimerPage();
+            switch (g_currentMenu)
+            {
+            case START_TIMER:
+                debug("b.waspressfor longpress on START_TIMER menuitem...");
+                startTimerPage();
+                break;
+            case SET_TIMER:
+                setTimerSubmenu();
+                break;
+            case SET_TEMP:
+                setTemperatureSubmenu();
+                break;
+            case CONTRAST:
+                adjustContrast();
+                break;
+            default:
+                // do nothing (how did we get here?)
+                break;
+            }
         }
-        else if (b.wasPressedFor() > longPress && g_currentMenu != START_TIMER)
+        else
         {
-            // do nothing
-            // No...wait. Do this - If backlight is off, turn it on.
-
-            debugln("b.wasPressedFor shortpress and NOT on START_TIMER menuitem");
             if (digitalRead(BACKLIGHT_PIN) == LOW)
             {
                 digitalWrite(BACKLIGHT_PIN, HIGH);
             }
-            // and if backlight is on, turn it off.
             else
             {
                 digitalWrite(BACKLIGHT_PIN, LOW);
             }
         }
 
-        // click press
-        // Switch on the selected menu item
-
-        switch (g_currentMenu)
-        {
-        case START_TIMER:
-            // wasn't a long press so do nothing
-            break;
-        case SET_TIMER:
-            setTimerSubmenu();
-            break;
-        case SET_TEMP:
-            setTemperatureSubmenu();
-            break;
-        case NETWORK:
-            networkSettings();
-            break;
-        case CONTRAST:
-            adjustContrast();
-            break;
-        default:
-            // do nothing (how did we get here?)
-            break;
-        }
         debugln("Loop complete.");
     }
 }
@@ -618,28 +614,6 @@ void setTemperatureSubmenu()
 }
 
 /**
- * @brief Implementation for network settings
- *
- * This function is called when the network menu option is selected.
- * It should handle the network settings.
- *
- * @todo Implement network settings
- */
-void networkSettings()
-{
-    // Implementation for network settings
-    while (true)
-    {
-        handleLoop();
-        if (b.wasPressed())
-        {
-            saveSettings();
-            break;
-        }
-    }
-}
-
-/**
  * @brief Adjusts the display contrast
  *
  * Allows the user to cycle through contrast settings with the rotary encoder.
@@ -648,6 +622,8 @@ void networkSettings()
  */
 void adjustContrast()
 {
+    uint8_t cursorPosition = 0;
+    uint8_t contrastValue = g_contrast;
     while (true)
     {
         handleLoop();
@@ -655,25 +631,62 @@ void adjustContrast()
         u8g2.clearBuffer();
         u8g2.setFont(u8g2_font_6x10_tf);
         u8g2.setCursor(0, 10);
-        u8g2.print("Contrast: ");
-        u8g2.print(g_contrast);
+        u8g2.print("Contrast:");
+
+        uint8_t digits[3] = {
+            static_cast<uint8_t>(contrastValue / 100),
+            static_cast<uint8_t>((contrastValue / 10) % 10),
+            static_cast<uint8_t>(contrastValue % 10)};
+
+        const uint8_t baseX = 0;
+        const uint8_t baseY = 30;
+        for (uint8_t i = 0; i < 3; i++)
+        {
+            if (i == cursorPosition)
+            {
+                u8g2.setDrawColor(1);
+                u8g2.drawBox(baseX + (i * 10), baseY - 8, 10, 10);
+                u8g2.setDrawColor(0);
+            }
+            u8g2.setCursor(baseX + (i * 10), baseY);
+            u8g2.print(digits[i]);
+            u8g2.setDrawColor(1);
+        }
+
         u8g2.sendBuffer();
 
         if (up)
         {
             up = false;
-            g_contrast = min(g_contrast + 1, 255);
+            const uint8_t step = (cursorPosition == 0) ? 100 : (cursorPosition == 1) ? 10
+                                                                                     : 1;
+            contrastValue = static_cast<uint8_t>(min(contrastValue + step, 255));
         }
         else if (down)
         {
             down = false;
-            g_contrast = max(g_contrast - 1, 0);
+            const uint8_t step = (cursorPosition == 0) ? 100 : (cursorPosition == 1) ? 10
+                                                                                     : 1;
+            if (contrastValue < step)
+            {
+                contrastValue = 0;
+            }
+            else
+            {
+                contrastValue = static_cast<uint8_t>(contrastValue - step);
+            }
         }
-        u8g2.setContrast(g_contrast);
+        u8g2.setContrast(contrastValue);
+
+        if (b.wasPressed())
+        {
+            cursorPosition = (cursorPosition + 1) % 3;
+        }
 
         // long press will save and exit
         if (b.wasPressedFor() > longPress)
         {
+            g_contrast = contrastValue;
             saveSettings();
             break;
         }
@@ -713,9 +726,6 @@ void displayMenu()
             break;
         case SET_TEMP:
             u8g2.print("Set Temp");
-            break;
-        case NETWORK:
-            u8g2.print("Network");
             break;
         case CONTRAST:
             u8g2.print("Contrast");
