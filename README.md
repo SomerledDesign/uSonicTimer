@@ -28,8 +28,10 @@ The menu approach comes from the [educ8s.tv](https://www.youtube.com/@Educ8s)
 ## Menu tree
 
 In the menu, rotating the encoder moves the reverse-video highlight, a **long press** (> 1 s)
-enters the highlighted item, and a **short press** is meant to toggle the backlight.
-In the current code `loop()` calls `turnOnBacklight()` on every pass, so the backlight stays on.
+enters the highlighted item, and a **short press** toggles the LCD backlight. The backlight is on
+at power-up. Its state is kept while you are in a page, because short presses inside the pages move
+the cursor or confirm instead. There is no automatic backlight timeout. Every button press is handled
+exactly once, so a press never carries over into the next page.
 
 ```
 Main menu
@@ -89,8 +91,9 @@ pio device monitor -b 115200        # serial monitor (debug output)
 - `debug` is the default environment: `-Og -ggdb -g3 -D DEBUG -D WITH_GDB`. It enables the
   serial `debug()`/`debugln()` output at 115200 baud.
 - `release` builds without the debug output.
-- `platformio.ini` sets `build_dir` and `libdeps_dir` to absolute paths under
-  `~/Library/Caches/PlatformIO/`. Change or remove them when building on another machine.
+- `platformio.ini` puts `build_dir` and `libdeps_dir` under
+  `$HOME/Library/Caches/PlatformIO/uSonicTimer/`, which keeps build output out of Dropbox. On a
+  non-macOS machine, change these paths or remove them to use the default `.pio/` folder.
 
 ## Setup and usage
 
