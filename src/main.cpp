@@ -323,7 +323,6 @@ void setup()
     currentTemperature = sensors.getTempFByIndex(0); // TODO: get address of sensor and use that instead
 
     // TODO: setup wifi
-    // create a secret.h file as in nightdriver by Dave Plummer
 
     // TODO: setup ntp
     // incorporate easy NTP TZ DST.cpp
@@ -480,7 +479,7 @@ void startTimerPage()
 /**
  * @brief Shows the timer selection submenu
  *
- * The user can cycle through the available preset times (5, 10, 15, 20, 25, 30 minutes)
+ * The user can cycle through the available preset times (3, 8, 10, 15, 20, 30, 60 minutes)
  * by rotating the encoder. The selected time is displayed on the screen.
  * The user can confirm the selection by pressing the encoder button, which will
  * save the new setting and exit the menu.
