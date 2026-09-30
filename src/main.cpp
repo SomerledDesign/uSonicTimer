@@ -224,6 +224,25 @@ uint8_t g_timerSetting;      // The timer to be set in minutes
 uint8_t tempOffset = 10;     // Offset in Fahrenheit for heater control
 uint8_t g_contrast;          // The contrast for the display
 uint16_t longPress = 1000;   // one second long press of button
+bool g_backlightOn = true;   // backlight state; toggled by a short press on the main menu
+
+// EEPROM layout (one byte per setting; addresses kept from earlier firmware so saved
+// temperature/timer/contrast values survive the update)
+#define EEPROM_SIZE           512
+#define EEPROM_ADDR_SET_TEMP  0x00 // uint8_t g_setTemperatureF
+#define EEPROM_ADDR_TIMER     0x08 // uint8_t g_timerSetting
+#define EEPROM_ADDR_CONTRAST  0x10 // uint8_t g_contrast
+static_assert(EEPROM_ADDR_SET_TEMP + sizeof(uint8_t) <= EEPROM_ADDR_TIMER, "EEPROM: set temp overlaps timer");
+static_assert(EEPROM_ADDR_TIMER + sizeof(uint8_t) <= EEPROM_ADDR_CONTRAST, "EEPROM: timer overlaps contrast");
+static_assert(EEPROM_ADDR_CONTRAST + sizeof(uint8_t) <= EEPROM_SIZE, "EEPROM: contrast outside EEPROM");
+
+// Button events (Button2 keeps wasPressed() set until read(), so every event must be consumed)
+enum ButtonEvent
+{
+    BUTTON_NONE,
+    BUTTON_SHORT,
+    BUTTON_LONG
+};
 int16_t last = 0;            // For rotary encoder reading
 
 volatile bool down  = false; // Flags for the encoder
@@ -260,6 +279,8 @@ void turnOnCleaner();
 void turnOffCleaner();
 void turnOnBacklight();
 void turnOffBacklight();
+void toggleBacklight();
+ButtonEvent readButton();
 
 void setup()
 {
@@ -268,7 +289,7 @@ void setup()
 
     // Initialize EEPROM for saving settings
     ///////////////////////////////////////////////////////////////
-    EEPROM.begin(512);
+    EEPROM.begin(EEPROM_SIZE);
 
     // delay(4000);
 
@@ -278,8 +299,6 @@ void setup()
     ///////////////////////////////////////////////////////////////
     u8g2.begin();
     u8g2.setContrast(g_contrast);
-
-    digitalWrite(BACKLIGHT_PIN, LOW); // turn off the backlight
 
     // Initialize temperature sensor
     ///////////////////////////////////////////////////////////////
@@ -313,6 +332,7 @@ void setup()
     ///////////////////////////////////////////////////////////////
 
     pinMode(BACKLIGHT_PIN, OUTPUT);
+    turnOnBacklight(); // backlight starts on; a short press on the main menu toggles it
     pinMode(HEATER_PIN, OUTPUT);
     pinMode(CLEANER_PIN, OUTPUT);
     digitalWrite(HEATER_PIN, LOW);
@@ -346,8 +366,6 @@ void loop()
 
     // debug("rotaryEncoder has been read...");
 
-    turnOnBacklight();
-
     // handle encoder events on various menuItems
     ////////////////////////////////////////////
     if (down)
@@ -368,10 +386,10 @@ void loop()
     // handle button events on various menuItems
     ////////////////////////////////////////////
 
-    if (b.wasPressed())
+    const ButtonEvent event = readButton();
+    if (event != BUTTON_NONE)
     {
-        const bool isLongPress = b.wasPressedFor() > longPress;
-        if (isLongPress)
+        if (event == BUTTON_LONG)
         {
             switch (g_currentMenu)
             {
@@ -395,14 +413,9 @@ void loop()
         }
         else
         {
-            if (digitalRead(BACKLIGHT_PIN) == LOW)
-            {
-                digitalWrite(BACKLIGHT_PIN, HIGH);
-            }
-            else
-            {
-                digitalWrite(BACKLIGHT_PIN, LOW);
-            }
+            // short press on the main menu toggles the backlight;
+            // submenus use short presses for their own purposes and leave it alone
+            toggleBacklight();
         }
 
         debugln("Loop complete.");
@@ -467,7 +480,8 @@ void startTimerPage()
         u8g2.print("F");
         u8g2.sendBuffer();
 
-        if (b.wasPressedFor() > longPress)
+        // long press aborts the timer
+        if (readButton() == BUTTON_LONG)
         {
             break;
         }
@@ -520,7 +534,7 @@ void setTimerSubmenu()
             selectedIndex = (selectedIndex + presetsCount - 1) % presetsCount;
         }
 
-        if (b.wasPressed())
+        if (readButton() != BUTTON_NONE)
         {
             g_timerSetting = presets[selectedIndex];
             saveSettings();
@@ -599,14 +613,16 @@ void setTemperatureSubmenu()
             digits[cursorPosition] = (digits[cursorPosition] - 1 + 10) % 10;
         }
 
-        // move the cursor position
-        if (b.wasPressed())
+        const ButtonEvent event = readButton();
+
+        // short press moves the cursor position
+        if (event == BUTTON_SHORT)
         {
             cursorPosition = (cursorPosition + 1) % 3;
         }
 
         // long press will save and exit
-        if (b.wasPressedFor() > longPress)
+        if (event == BUTTON_LONG)
         {
             g_setTemperatureF = digits[0] * 100 + digits[1] * 10 + digits[2];
             saveSettings();
@@ -680,13 +696,16 @@ void adjustContrast()
         }
         u8g2.setContrast(contrastValue);
 
-        if (b.wasPressed())
+        const ButtonEvent event = readButton();
+
+        // short press moves the cursor position
+        if (event == BUTTON_SHORT)
         {
             cursorPosition = (cursorPosition + 1) % 3;
         }
 
         // long press will save and exit
-        if (b.wasPressedFor() > longPress)
+        if (event == BUTTON_LONG)
         {
             g_contrast = contrastValue;
             saveSettings();
@@ -811,9 +830,9 @@ void turnOffCleaner()
 // ----------------
 void saveSettings()
 {
-    EEPROM.put(0x0, g_setTemperatureF);
-    EEPROM.put(0x8, g_timerSetting);
-    EEPROM.put(0x10, g_contrast);
+    EEPROM.put(EEPROM_ADDR_SET_TEMP, g_setTemperatureF);
+    EEPROM.put(EEPROM_ADDR_TIMER, g_timerSetting);
+    EEPROM.put(EEPROM_ADDR_CONTRAST, g_contrast);
     EEPROM.commit();
 }
 /// @brief Load settings from EEPROM.  Apply defaults if not found
@@ -822,9 +841,9 @@ void loadSettings()
 
     debug("\tEntered loadSettings()...");
 
-    EEPROM.get(0, g_setTemperatureF);
-    EEPROM.get(8, g_timerSetting);
-    EEPROM.get(10, g_contrast);
+    EEPROM.get(EEPROM_ADDR_SET_TEMP, g_setTemperatureF);
+    EEPROM.get(EEPROM_ADDR_TIMER, g_timerSetting);
+    EEPROM.get(EEPROM_ADDR_CONTRAST, g_contrast);
 
     if (g_setTemperatureF == 0)
     {
@@ -843,14 +862,45 @@ void loadSettings()
     debug("\texiting loadSettings()");
 }
 
+/**
+ * @brief Returns (and consumes) the last completed button event.
+ *
+ * Button2 leaves wasPressed() set until read() is called, so the event is cleared here to
+ * avoid acting on the same press again on the next pass or in the next menu page.
+ * A press held longer than longPress counts as BUTTON_LONG, anything shorter as BUTTON_SHORT.
+ */
+ButtonEvent readButton()
+{
+    if (!b.wasPressed())
+    {
+        return BUTTON_NONE;
+    }
+    b.read(); // consume the event
+    return (b.wasPressedFor() > longPress) ? BUTTON_LONG : BUTTON_SHORT;
+}
+
+void toggleBacklight()
+{
+    if (g_backlightOn)
+    {
+        turnOffBacklight();
+    }
+    else
+    {
+        turnOnBacklight();
+    }
+}
+
 void turnOffBacklight()
 {
+    g_backlightOn = false;
     digitalWrite(BACKLIGHT_PIN, LOW);
     debugln("Backlight off");
 }
 
 void turnOnBacklight()
 {
+    g_backlightOn = true;
     digitalWrite(BACKLIGHT_PIN, HIGH);
     debugln("Backlight on");
 }
