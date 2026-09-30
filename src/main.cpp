@@ -48,6 +48,9 @@
  *  Physical pins listed for comparison to pcb.
  *  in version 1b pcb 2/2023 the CS is connected to ground
  *  GPIO15 is used for
+ *  PCB rev 1d (9/2026): LCD CS on GPIO2 (10K pull-up), backlight on GPIO15 (10K pull-down),
+ *  1-Wire on GPIO0 (4K7 pull-up), encoder CLK on GPIO16. Heater/cleaner SSRs are now switched
+ *  low-side by NPN transistors (GPIO HIGH = ON, same logic as before).
  *
  *
  *  === ESP8266 Pinout ===
@@ -83,23 +86,23 @@
  *   •   ADC0      A0    2  (Analog Input)
  *
  * ----------------------------------------------------------------------------------------
- *  Required I/O (PCB v1b)
+ *  Required I/O (PCB rev 1d)
  *    SPI Nokia 5110
  *      Func          Non i/o     Digitial     GPIO i/o     ESP12e Pin         Descr.                   Ω out
  *     =========================================================================================================
  *    1 RESET          RST        RST          -           1                  RESET line
- *    2 CS             GND        -            -           -                  CHIP SELECT (tied low)
+ *    2 CS                        D4           GPIO2       17                 CHIP SELECT (10K pull-up)
  *    3 D/C                       D10/TX       GPIO1       22                 DATA|COMMAND
  *    4 DIN                       D7(MOSI)     GPIO13      7                  MOSI
  *    5 CLK                       D5(SCLK)     GPIO14      5                  SCLK
  *    6 VCC            3V
- *    7 BL                        D4           GPIO2       17                 Backlight PWM
+ *    7 BL                        D8           GPIO15      16                 Backlight (via Q1, 10K pull-down)
  *    8 GND
  *
  *    Rotary Encoder
  *      Func          Non i/o     Digitial     GPIO i/o     ESP12e Pin        Descr.         Ω out
  *     ===========================================================================================
- *      ROT_ENC_A_PIN             D3           GPIO0       18                 CLK/~PROGRAM     ✓
+ *      ROT_ENC_A_PIN             D0           GPIO16      4                  CLK (10K pull-up) ✓
  *      ROT_ENC_B_PIN             D6           GPIO12      6                  DT               ✓
  *      ROT_ENC_BUTTON_PIN        D9           GPIO3       21                 SW(/RX)           ✓
  *
@@ -112,7 +115,7 @@
  *    Dallas Temp Sensor (DS18B20)
  *      Func          Non i/o     Digitial     GPIO i/o     ESP12e Pin         Descr.
  *     =====================================================================================
- *      ONE_WIRE_BUS              D0           GPIO16       4
+ *      ONE_WIRE_BUS              D3           GPIO0       18                  4K7 pull-up; also ~PROGRAM
  *
  *    ICSP Header (5 pin pogo pads)
  *      Func             Header pin    to -->                       ESP12e Pin    Ω out
@@ -156,22 +159,22 @@
 #define debugln(x)
 #endif // DEBUG
 
-// Pin definitions (PCB v1b)
-#define ONE_WIRE_BUS D0 // GPIO16
+// Pin definitions (PCB rev 1d)
+#define ONE_WIRE_BUS D3 // GPIO0 (4K7 pull-up, shared with ~PROGRAM)
 
 #define CLEANER_PIN D1  // GPIO5
 #define HEATER_PIN D2   // GPIO4
 
-#define ROTARY_PIN1 D3     // GPIO0, CLK/~PROGRAM
+#define ROTARY_PIN1 D0     // GPIO16, CLK (polled; no interrupt on GPIO16)
 #define ROTARY_PIN2 D6     // GPIO12, DT
 #define ROTARY_BUTTON D9   // GPIO3, SW/RX
 
-#define BACKLIGHT_PIN D4 // GPIO2
+#define BACKLIGHT_PIN D8 // GPIO15 (10K pull-down, drives Q1)
 
 #define LCD_SCLK_PIN D5   // GPIO14
 #define LCD_DIN_PIN D7    // GPIO13
 #define LCD_DC_PIN D10    // GPIO1 (TX)
-#define LCD_CS_PIN U8X8_PIN_NONE
+#define LCD_CS_PIN D4      // GPIO2 (10K pull-up)
 #define LCD_RST_PIN U8X8_PIN_NONE
 // Status LED
 // TODO: maybe use the backlight as a Status?  Pulsing, Flashing, Steady, Dim?
