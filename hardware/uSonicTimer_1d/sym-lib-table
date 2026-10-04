@@ -1,0 +1,4 @@
+(sym_lib_table
+  (version 7)
+  (lib (name "uSonicTimer1d")(type "KiCad")(uri "${KIPRJMOD}/uSonicTimer1d.kicad_sym")(options "")(descr "uSonicTimer rev 1d project symbols"))
+)

@@ -1,0 +1,4 @@
+(fp_lib_table
+  (version 7)
+  (lib (name "uSonicTimer1d")(type "KiCad")(uri "${KIPRJMOD}/uSonicTimer1d.pretty")(options "")(descr "uSonicTimer rev 1d project footprints (exported from the board)"))
+)

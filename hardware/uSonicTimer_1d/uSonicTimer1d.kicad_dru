@@ -1,0 +1,7 @@
+(version 1)
+
+# rev 1d: solid (no thermal spokes) GND zone connection for C7 pad 2 and Q1 pad 2.
+# Replaces per-pad overrides so these footprints stay identical to the project library.
+(rule "Solid GND: C7.2 and Q1.2"
+	(condition "A.Type == 'Pad' && (A.Parent.Reference == 'C7' || A.Parent.Reference == 'Q1') && A.Pad_Number == '2' && A.NetName == 'GND'")
+	(constraint zone_connection solid))

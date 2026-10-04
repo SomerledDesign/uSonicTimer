@@ -1,0 +1,16 @@
+# KiCad backups, autosaves, locks and caches
+*-backups/
+*.bak
+*.bck
+*-bak
+_autosave-*
+#auto_saved*
+*.lck
+~*.lck
+fp-info-cache
+*.kicad_prl
+.history/
+
+# macOS / Windows breadcrumbs
+.DS_Store
+desktop.ini

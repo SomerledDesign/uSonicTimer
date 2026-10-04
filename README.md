@@ -51,6 +51,8 @@ Main menu
 
 ## Hardware (PCB rev 1d) pin map
 
+The KiCad design files for this board are in [`hardware/uSonicTimer_1d/`](hardware/uSonicTimer_1d/).
+
 | Signal | Arduino pin | ESP8266 GPIO | ESP-12E pin | Notes |
 |---|---|---|---|---|
 | LCD SCLK | D5 | GPIO14 | 5 | software SPI clock |
@@ -112,6 +114,8 @@ pio device monitor -b 115200        # serial monitor (debug output)
 - `src/sketch.md`: design notes and the original specification.
 - `include/`: headers (splash/footer glyph bitmaps).
 - `handoff.md`: latest status and decisions.
+- `hardware/uSonicTimer_1d/`: KiCad project for the rev 1d controller board (schematic, PCB,
+  project symbol/footprint libraries, Gerbers, interactive BOM and renders).
 - `extras/` (git-ignored): local reference material. This includes third-party menu/encoder demo
   code, links to the KiCad hardware projects and links to the datasheets, which are archived
   centrally.
@@ -123,9 +127,10 @@ uSonicTimer uses two licences, one for the code and one for the hardware:
 - **Firmware and code** (`src/`, `include/`, `platformio.ini` and the rest of the software) are
   under the GNU General Public License, version 3 or later. See [`LICENSE`](LICENSE).
   SPDX-License-Identifier: GPL-3.0-or-later
-- **Hardware design files** (the KiCad schematic, PCB and related fabrication files for the
-  controller board, wherever they are published for this project) are under the CERN Open
-  Hardware Licence Version 2, Strongly Reciprocal. See [`LICENSE-HARDWARE`](LICENSE-HARDWARE).
+- **Hardware design files** (everything under [`hardware/`](hardware/): the KiCad schematic,
+  PCB, libraries and related fabrication files for the controller board, and the same files
+  wherever else they are published for this project) are under the CERN Open Hardware Licence
+  Version 2, Strongly Reciprocal. See [`LICENSE-HARDWARE`](LICENSE-HARDWARE).
   SPDX-License-Identifier: CERN-OHL-S-2.0
 
 Both licences come with no warranty. This controller switches 110 VAC mains through solid-state

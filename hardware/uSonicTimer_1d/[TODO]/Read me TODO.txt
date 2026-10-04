@@ -1,0 +1,28 @@
+Changes to implement in the next version/issue of the board.
+
+SCHEMATIC:
+Separate GPIO0 and CLK from rotary encoder.  This might not work as it pulls GPIO0 low during operation of the encoder, thereby putting the esp12e into Bootloader mode. :^(
+Make ICSB connector 3x2 header.  Put guard box around connector (POGO pins seem to work alright so skip this)
+
+
+When using HW SPI use all the pins. 
+So CS/SS should be used as the 5110 might require it for sync with the master.
+USE Hardware SPI on NOKIA 5110 as follows:
+Change DT (data encoder) from GPIO12 (MISO) to GPIO15.  This is held low by a 10K resistor (for boot purposes) so connect the 
+
+
+
+BLOCK DIAGRAM:
+
+
+PCB:
+The pcb material should be 0.8mm, not the standard 1.6mm
+Adjust for Surface mounted 6 pin ICSB connector.
+Make KeepOut bigger by 5mm per side of the antenna
+
+PRODUCTION:
+
+
+
+FIRMWARE:
+

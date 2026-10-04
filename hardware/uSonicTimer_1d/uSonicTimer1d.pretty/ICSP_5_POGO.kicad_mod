@@ -1,0 +1,178 @@
+(footprint "ICSP_5_POGO"
+	(version 20260206)
+	(generator "pcbnew")
+	(generator_version "10.0")
+	(locked yes)
+	(layer "F.Cu")
+	(descr "A Pogo pin style ICSP")
+	(property "Reference" "REF**"
+		(at 0 -2.63 180)
+		(layer "F.SilkS")
+		(uuid "1622cee3-9928-4f18-b66b-5717187633d1")
+		(effects
+			(font
+				(size 1 1)
+				(thickness 0.15)
+			)
+		)
+	)
+	(property "Value" "ICSP_5_POGO"
+		(at 0 -2.5 180)
+		(layer "F.Fab")
+		(hide yes)
+		(uuid "40c7d8f0-db42-474f-a5d6-f7dea9c246f3")
+		(effects
+			(font
+				(size 1 1)
+				(thickness 0.15)
+			)
+		)
+	)
+	(property "Datasheet" ""
+		(at 0 0 180)
+		(layer "B.Fab")
+		(hide yes)
+		(uuid "43712786-9dfb-42b2-88c4-be39c87c00d2")
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+			(justify mirror)
+		)
+	)
+	(property "Description" ""
+		(at 0 0 180)
+		(layer "B.Fab")
+		(hide yes)
+		(uuid "62ddc4c5-2d19-44bf-aba9-8ac1678aa954")
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+			(justify mirror)
+		)
+	)
+	(sheetfile "uSonicTimer1d.kicad_sch")
+	(duplicate_pad_numbers_are_jumpers no)
+	(fp_line
+		(start -6.18 -1.5)
+		(end 6.18 -1.5)
+		(stroke
+			(width 0.12)
+			(type solid)
+		)
+		(layer "F.SilkS")
+		(uuid "671bc8cc-a8ef-4a99-b346-3d990ceeec24")
+	)
+	(fp_line
+		(start -6.18 1.5)
+		(end -6.18 -1.5)
+		(stroke
+			(width 0.12)
+			(type solid)
+		)
+		(layer "F.SilkS")
+		(uuid "c072e99e-62f5-45c7-aa34-eba827eceb23")
+	)
+	(fp_line
+		(start -3.81 -1.5)
+		(end -3.81 1.5)
+		(stroke
+			(width 0.12)
+			(type solid)
+		)
+		(layer "F.SilkS")
+		(uuid "4f37b850-282a-4cdf-bde9-55490940c23d")
+	)
+	(fp_line
+		(start 6.18 -1.5)
+		(end 6.18 1.5)
+		(stroke
+			(width 0.12)
+			(type solid)
+		)
+		(layer "F.SilkS")
+		(uuid "84db27c8-d001-4329-83ff-189b71998d37")
+	)
+	(fp_line
+		(start 6.18 1.5)
+		(end -6.18 1.5)
+		(stroke
+			(width 0.12)
+			(type solid)
+		)
+		(layer "F.SilkS")
+		(uuid "b5fc24ec-64ef-4fc4-83c4-75034225932b")
+	)
+	(fp_line
+		(start -5.93 -1.25)
+		(end 5.93 -1.25)
+		(stroke
+			(width 0.05)
+			(type solid)
+		)
+		(layer "F.CrtYd")
+		(uuid "c3420895-f42d-4c8f-8a97-a51a0d1bb860")
+	)
+	(fp_line
+		(start -5.93 1.25)
+		(end -5.93 -1.25)
+		(stroke
+			(width 0.05)
+			(type solid)
+		)
+		(layer "F.CrtYd")
+		(uuid "b0487bdd-85e5-4d62-ab7f-d3bcfd3592f9")
+	)
+	(fp_line
+		(start 5.93 -1.25)
+		(end 5.93 1.25)
+		(stroke
+			(width 0.05)
+			(type solid)
+		)
+		(layer "F.CrtYd")
+		(uuid "d9f4da6b-0a91-47b8-a856-725579b9d094")
+	)
+	(fp_line
+		(start 5.93 1.25)
+		(end -5.93 1.25)
+		(stroke
+			(width 0.05)
+			(type solid)
+		)
+		(layer "F.CrtYd")
+		(uuid "3f6262f1-36be-4c97-aca6-1a6abc197855")
+	)
+	(pad "1" smd oval
+		(at -5.08 0)
+		(size 1.2192 2.032)
+		(layers "F.Cu" "F.Mask" "F.Paste")
+		(uuid "f4d9fc79-18f9-4b9b-9abe-5f6951ce9838")
+	)
+	(pad "2" smd oval
+		(at -2.54 0)
+		(size 1.2192 2.032)
+		(layers "F.Cu" "F.Mask" "F.Paste")
+		(uuid "ac0374ca-fd43-44fe-9f0d-9100c919c94e")
+	)
+	(pad "3" smd oval
+		(at 0 0)
+		(size 1.2192 2.032)
+		(layers "F.Cu" "F.Mask" "F.Paste")
+		(uuid "72894959-b0ba-4b3d-b84b-7b56025ea38d")
+	)
+	(pad "4" smd oval
+		(at 2.54 0)
+		(size 1.2192 2.032)
+		(layers "F.Cu" "F.Mask" "F.Paste")
+		(uuid "e6afb07f-4ace-47f4-abb5-475def0217bb")
+	)
+	(pad "5" smd oval
+		(at 5.08 0)
+		(size 1.2192 2.032)
+		(layers "F.Cu" "F.Mask" "F.Paste")
+		(uuid "0567cdc0-fd18-4373-b02f-87e701870341")
+	)
+	(embedded_fonts no)
+)
