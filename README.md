@@ -118,4 +118,17 @@ pio device monitor -b 115200        # serial monitor (debug output)
 
 ## License
 
-GNU GPL v3 or later. See the header of `src/main.cpp`.
+uSonicTimer uses two licences, one for the code and one for the hardware:
+
+- **Firmware and code** (`src/`, `include/`, `platformio.ini` and the rest of the software) are
+  under the GNU General Public License, version 3 or later. See [`LICENSE`](LICENSE).
+  SPDX-License-Identifier: GPL-3.0-or-later
+- **Hardware design files** (the KiCad schematic, PCB and related fabrication files for the
+  controller board, wherever they are published for this project) are under the CERN Open
+  Hardware Licence Version 2, Strongly Reciprocal. See [`LICENSE-HARDWARE`](LICENSE-HARDWARE).
+  SPDX-License-Identifier: CERN-OHL-S-2.0
+
+Both licences come with no warranty. This controller switches 110 VAC mains through solid-state
+relays; build and use it at your own risk.
+
+Copyright © 2024 Somerled Design, LLC.
