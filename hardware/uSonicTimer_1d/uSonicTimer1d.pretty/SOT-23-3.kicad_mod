@@ -286,15 +286,15 @@
 		(uuid "b7794e63-3f90-4b9b-8599-9f71456d8555")
 	)
 	(embedded_fonts no)
-	(model "/Users/kmurphy/Library/CloudStorage/Dropbox/KiCad/lib/3dmodels/km3dpacks/User Library-SOT23-3.step"
+	(model "${KICAD10_3DMODEL_DIR}/Package_TO_SOT_SMD.3dshapes/SOT-23-3.step"
 		(offset
-			(xyz 0 0 0.009)
+			(xyz 0 0 0)
 		)
 		(scale
 			(xyz 1 1 1)
 		)
 		(rotate
-			(xyz 0 0 90)
+			(xyz 0 0 0)
 		)
 	)
 )

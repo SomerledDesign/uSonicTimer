@@ -384,39 +384,4 @@
 		(uuid "3ffd8457-999f-4c60-9f21-0252462d5ef0")
 	)
 	(embedded_fonts no)
-	(model "${KICAD6_3DMODEL_DIR}/Rotary_Encoder.3dshapes/RotaryEncoder_Alps_EC11E-Switch_Vertical_H20mm.wrl"
-		(hide yes)
-		(offset
-			(xyz 0 0 0)
-		)
-		(scale
-			(xyz 1 1 1)
-		)
-		(rotate
-			(xyz 0 0 0)
-		)
-	)
-	(model "${MYSPECLMOD}/User Library-EC11B15244.STEP"
-		(hide yes)
-		(offset
-			(xyz 7.2 -2.4 -0.2)
-		)
-		(scale
-			(xyz 1 1 1)
-		)
-		(rotate
-			(xyz 0 0 -90)
-		)
-	)
-	(model "${MYSPECLMOD}/EC11 Rotary Encoder Dode Switch-15mm .STEP"
-		(offset
-			(xyz 7.5 -2.5 0.1)
-		)
-		(scale
-			(xyz 1 1 1)
-		)
-		(rotate
-			(xyz 0 0 90)
-		)
-	)
 )

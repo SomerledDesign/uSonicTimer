@@ -198,7 +198,7 @@
 		(uuid "4e353c53-a994-4d4d-b0d6-6c6521cf3c14")
 	)
 	(embedded_fonts no)
-	(model "${KICAD6_3DMODEL_DIR}/LED_SMD.3dshapes/LED_0805_2012Metric.wrl"
+	(model "${KICAD10_3DMODEL_DIR}/LED_SMD.3dshapes/LED_0805_2012Metric.step"
 		(offset
 			(xyz 0 0 0)
 		)

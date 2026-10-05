@@ -281,19 +281,7 @@
 		(uuid "8c469bb8-b518-49d4-980d-e59dbfb94da9")
 	)
 	(embedded_fonts no)
-	(model "${KICAD6_3DMODEL_DIR}/Button_Switch_SMD.3dshapes/SW_Tactile_SPST_NO_Straight_CK_PTS636Sx25SMTRLFS.wrl"
-		(hide yes)
-		(offset
-			(xyz 0 0 0)
-		)
-		(scale
-			(xyz 1 1 1)
-		)
-		(rotate
-			(xyz 0 0 0)
-		)
-	)
-	(model "${MYSPECLMOD}/g73-6x3-5-mm-smd-button-1/SW_Tactile_SPST_NO_Straight_CK_PTS636Sx25SMTRLFS.STEP"
+	(model "${KICAD10_3DMODEL_DIR}/Button_Switch_SMD.3dshapes/SW_Tactile_SPST_NO_Straight_CK_PTS636Sx25SMTRLFS.step"
 		(offset
 			(xyz 0 0 0)
 		)

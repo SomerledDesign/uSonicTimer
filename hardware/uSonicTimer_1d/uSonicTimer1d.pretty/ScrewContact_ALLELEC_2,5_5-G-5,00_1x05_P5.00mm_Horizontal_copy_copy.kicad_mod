@@ -491,26 +491,4 @@
 		(uuid "29dc295d-d8fc-4752-8202-7db08a679d4d")
 	)
 	(embedded_fonts no)
-	(model "${MYSPECLMOD}/pcb-terminal-blocks-1/BR1102V.stp"
-		(offset
-			(xyz -2.2 -3.8 0)
-		)
-		(scale
-			(xyz 0.5 0.5 0.5)
-		)
-		(rotate
-			(xyz -90 0 0)
-		)
-	)
-	(model "${MYSPECLMOD}/pcb-terminal-blocks-1/BR1103V.stp"
-		(offset
-			(xyz -2.5 -3.8 0)
-		)
-		(scale
-			(xyz 0.52 0.5 0.5)
-		)
-		(rotate
-			(xyz -90 0 0)
-		)
-	)
 )

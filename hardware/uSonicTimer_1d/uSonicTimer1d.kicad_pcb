@@ -429,18 +429,6 @@
 		)
 		(embedded_fonts no)
 		(model "${KICAD10_3DMODEL_DIR}/Button_Switch_SMD.3dshapes/SW_Tactile_SPST_NO_Straight_CK_PTS636Sx25SMTRLFS.step"
-			(hide yes)
-			(offset
-				(xyz 0 0 0)
-			)
-			(scale
-				(xyz 1 1 1)
-			)
-			(rotate
-				(xyz 0 0 0)
-			)
-		)
-		(model "${MYSPECLMOD}/g73-6x3-5-mm-smd-button-1/SW_Tactile_SPST_NO_Straight_CK_PTS636Sx25SMTRLFS.STEP"
 			(offset
 				(xyz 0 0 0)
 			)
@@ -4810,15 +4798,15 @@
 			(uuid "e8ef4d2c-c772-40ce-8375-31cc52b889fa")
 		)
 		(embedded_fonts no)
-		(model "/Users/kmurphy/Library/CloudStorage/Dropbox/KiCad/lib/3dmodels/km3dpacks/User Library-SOT23-3.step"
+		(model "${KICAD10_3DMODEL_DIR}/Package_TO_SOT_SMD.3dshapes/SOT-23-3.step"
 			(offset
-				(xyz 0 0 0.009)
+				(xyz 0 0 0)
 			)
 			(scale
 				(xyz 1 1 1)
 			)
 			(rotate
-				(xyz 0 0 90)
+				(xyz 0 0 0)
 			)
 		)
 	)
@@ -5471,15 +5459,15 @@
 			(uuid "afabc1e4-d59c-434e-8f54-3f00812135c9")
 		)
 		(embedded_fonts no)
-		(model "/Users/kmurphy/Library/CloudStorage/Dropbox/KiCad/lib/3dmodels/km3dpacks/User Library-SOT23-3.step"
+		(model "${KICAD10_3DMODEL_DIR}/Package_TO_SOT_SMD.3dshapes/SOT-23-3.step"
 			(offset
-				(xyz 0 0 0.009)
+				(xyz 0 0 0)
 			)
 			(scale
 				(xyz 1 1 1)
 			)
 			(rotate
-				(xyz 0 0 90)
+				(xyz 0 0 0)
 			)
 		)
 	)
@@ -6967,41 +6955,6 @@
 			(uuid "3ffd8457-999f-4c60-9f21-0252462d5ef0")
 		)
 		(embedded_fonts no)
-		(model "${KICAD6_3DMODEL_DIR}/Rotary_Encoder.3dshapes/RotaryEncoder_Alps_EC11E-Switch_Vertical_H20mm.wrl"
-			(hide yes)
-			(offset
-				(xyz 0 0 0)
-			)
-			(scale
-				(xyz 1 1 1)
-			)
-			(rotate
-				(xyz 0 0 0)
-			)
-		)
-		(model "${MYSPECLMOD}/User Library-EC11B15244.STEP"
-			(hide yes)
-			(offset
-				(xyz 7.2 -2.4 -0.2)
-			)
-			(scale
-				(xyz 1 1 1)
-			)
-			(rotate
-				(xyz 0 0 -90)
-			)
-		)
-		(model "${MYSPECLMOD}/EC11 Rotary Encoder Dode Switch-15mm .STEP"
-			(offset
-				(xyz 7.5 -2.5 0.1)
-			)
-			(scale
-				(xyz 1 1 1)
-			)
-			(rotate
-				(xyz 0 0 90)
-			)
-		)
 	)
 	(footprint "uSonicTimer1d:SOT-223-3_TabPin2"
 		(layer "F.Cu")
@@ -9932,15 +9885,15 @@
 			(uuid "654dc6e7-ffa8-492e-991f-90da92386c0c")
 		)
 		(embedded_fonts no)
-		(model "/Users/kmurphy/Library/CloudStorage/Dropbox/KiCad/lib/3dmodels/km3dpacks/User Library-SOT23-3.step"
+		(model "${KICAD10_3DMODEL_DIR}/Package_TO_SOT_SMD.3dshapes/SOT-23-3.step"
 			(offset
-				(xyz 0 0 0.009)
+				(xyz 0 0 0)
 			)
 			(scale
 				(xyz 1 1 1)
 			)
 			(rotate
-				(xyz 0 0 90)
+				(xyz 0 0 0)
 			)
 		)
 	)
@@ -11193,28 +11146,6 @@
 			(uuid "29dc295d-d8fc-4752-8202-7db08a679d4d")
 		)
 		(embedded_fonts no)
-		(model "${MYSPECLMOD}/pcb-terminal-blocks-1/BR1102V.stp"
-			(offset
-				(xyz -2.2 -3.8 0)
-			)
-			(scale
-				(xyz 0.5 0.5 0.5)
-			)
-			(rotate
-				(xyz -90 0 0)
-			)
-		)
-		(model "${MYSPECLMOD}/pcb-terminal-blocks-1/BR1103V.stp"
-			(offset
-				(xyz -2.5 -3.8 0)
-			)
-			(scale
-				(xyz 0.52 0.5 0.5)
-			)
-			(rotate
-				(xyz -90 0 0)
-			)
-		)
 	)
 	(footprint "uSonicTimer1d:C_0805_2012Metric"
 		(layer "B.Cu")
@@ -12899,15 +12830,15 @@
 			(uuid "292613b4-ad36-4d13-a7f7-e64119bd0889")
 		)
 		(embedded_fonts no)
-		(model "/Users/kmurphy/Library/CloudStorage/Dropbox/KiCad/lib/3dmodels/km3dpacks/User Library-SOT23-3.step"
+		(model "${KICAD10_3DMODEL_DIR}/Package_TO_SOT_SMD.3dshapes/SOT-23-3.step"
 			(offset
-				(xyz 0 0 0.009)
+				(xyz 0 0 0)
 			)
 			(scale
 				(xyz 1 1 1)
 			)
 			(rotate
-				(xyz 0 0 90)
+				(xyz 0 0 0)
 			)
 		)
 	)
@@ -13744,15 +13675,15 @@
 			(uuid "f4c36318-9eb6-4434-8d8e-f5f597f617b8")
 		)
 		(embedded_fonts no)
-		(model "/Users/kmurphy/Library/CloudStorage/Dropbox/KiCad/lib/3dmodels/km3dpacks/User Library-SOT23-3.step"
+		(model "${KICAD10_3DMODEL_DIR}/Package_TO_SOT_SMD.3dshapes/SOT-23-3.step"
 			(offset
-				(xyz 0 0 0.009)
+				(xyz 0 0 0)
 			)
 			(scale
 				(xyz 1 1 1)
 			)
 			(rotate
-				(xyz 0 0 90)
+				(xyz 0 0 0)
 			)
 		)
 	)
