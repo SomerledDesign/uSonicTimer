@@ -13,12 +13,26 @@ CC-BY-SA 4.0 with the KiCad library exception, so it can be used in any design.
 
 | Part | Footprint | Model referenced before | Source and licence | Decision |
 |---|---|---|---|---|
-| Q1-Q5 | `SOT-23-3` | `/Users/.../KiCad/lib/3dmodels/km3dpacks/User Library-SOT23-3.step` (absolute path) | SolidWorks 2022 STEP export, 2023-02-13. No author, licence or source URL in the file, and Kevin's library notes don't record one. | **Not committed** (provenance unclear). Replaced by the stock `Package_TO_SOT_SMD.3dshapes/SOT-23-3.step` (same package, same pad layout). |
+| Q1-Q5 | `SOT-23-3` | `/Users/.../KiCad/lib/3dmodels/km3dpacks/User Library-SOT23-3.step` (absolute path) | Downloaded by Kevin from Dassault's 3D ContentCentral (3dcontentcentral.com); the "User Library-…" name is its export naming. SolidWorks 2022 STEP, 2023-02-13. User-uploaded under Dassault's terms. | **Not committed** (no redistribution licence). Replaced by the stock `Package_TO_SOT_SMD.3dshapes/SOT-23-3.step` (same package, same pad layout). |
 | ENC1 | `RotaryEncoder_Alps_EC11E-Switch_Vertical_H20mm` | `${MYSPECLMOD}/EC11 Rotary Encoder Dode Switch-15mm .STEP` (offset 7.5 -2.5 0.1, rot 0 0 90) | GrabCAD model "EC11 Rotary Encoder Dode Switch-15mm" by user *xindela* (SolidWorks 2016, 2021-10-20). GrabCAD terms allow only non-commercial, internal use, under a non-sublicensable licence. | **Not committed** (can't be relicensed or redistributed). Removed. ENC1 has no 3D body, and KiCad ships no stock EC11 model. |
-| ENC1 (hidden) | same | `${MYSPECLMOD}/User Library-EC11B15244.STEP` | File isn't on Kevin's machines; source unknown. | Removed |
+| ENC1 (hidden) | same | `${MYSPECLMOD}/User Library-EC11B15244.STEP` | Downloaded by Kevin from 3D ContentCentral ("User Library-…" export naming). User-uploaded under Dassault's terms. File is no longer on Kevin's machines. | Removed |
 | ENC1 (hidden) | same | `${KICAD6_3DMODEL_DIR}/Rotary_Encoder.3dshapes/...EC11E-Switch_Vertical_H20mm.wrl` | KiCad stock path, but KiCad 10 ships no such model. | Removed (dangling) |
-| SW1 | `SW_Tactile_SPST_NO_Straight_CK_PTS636Sx25SMTRLFS` | `${MYSPECLMOD}/g73-6x3-5-mm-smd-button-1/...PTS636Sx25SMTRLFS.STEP` | Folder name matches a GrabCAD download ("g73-6x3-5-mm-smd-button-1"). File isn't on Kevin's machines. | Removed. The stock KiCad model for this exact C&K part was already on the footprint (hidden); it is now shown. |
-| J1 | `ScrewContact_ALLELEC_2,5_5-G-5,00_1x05_P5.00mm_Horizontal_copy_copy` | `${MYSPECLMOD}/pcb-terminal-blocks-1/BR1102V.stp` and `BR1103V.stp` (scaled 0.5) | Folder name matches a GrabCAD download ("pcb-terminal-blocks-1"). Files aren't on Kevin's machines. | Removed. J1 has no 3D body. |
+| SW1 | `SW_Tactile_SPST_NO_Straight_CK_PTS636Sx25SMTRLFS` | `${MYSPECLMOD}/g73-6x3-5-mm-smd-button-1/...PTS636Sx25SMTRLFS.STEP` | File isn't on Kevin's machines. Probably 3D ContentCentral like the others; the folder name also looks like a GrabCAD download ("g73-6x3-5-mm-smd-button-1"). | Removed. The stock KiCad model for this exact C&K part was already on the footprint (hidden); it is now shown. |
+| J1 | `ScrewContact_ALLELEC_2,5_5-G-5,00_1x05_P5.00mm_Horizontal_copy_copy` | `${MYSPECLMOD}/pcb-terminal-blocks-1/BR1102V.stp` and `BR1103V.stp` (scaled 0.5) | Files aren't on Kevin's machines. Probably 3D ContentCentral like the others; the folder name also looks like a GrabCAD download ("pcb-terminal-blocks-1"). | Removed. J1 has no 3D body. |
+
+### Where the excluded models came from
+
+Kevin downloaded most of the excluded models from **3D ContentCentral**
+(3dcontentcentral.com, run by Dassault Systèmes; the site appears to be gone now):
+- Q1-Q5 `User Library-SOT23-3`
+- ENC1 `User Library-EC11B15244`
+- probably the SW1 and J1 models too
+
+The `User Library-…` file names match 3D ContentCentral's export naming. These models
+were uploaded by users under Dassault's terms, which give no licence to redistribute
+them, so they are not included in this CERN-OHL-S repository. Keep them in a local
+library instead. The EC11 encoder model (`EC11 Rotary Encoder Dode Switch-15mm`) is
+attributed to GrabCAD user *xindela*, as above.
 
 `${MYSPECLMOD}` is not defined in Kevin's KiCad 9/10 configuration. So none of the
 `MYSPECLMOD` models resolved on any machine before this change either.
