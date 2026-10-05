@@ -439,4 +439,15 @@
 		(uuid "f87f78a3-1006-40df-983a-43c08b56e4fc")
 	)
 	(embedded_fonts no)
+	(model "${KIPRJMOD}/3dmodels/LCD_Nokia_5110-3310_bare_frame.step"
+		(offset
+			(xyz 0 0 0)
+		)
+		(scale
+			(xyz 1 1 1)
+		)
+		(rotate
+			(xyz 0 0 0)
+		)
+	)
 )

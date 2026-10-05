@@ -491,4 +491,15 @@
 		(uuid "29dc295d-d8fc-4752-8202-7db08a679d4d")
 	)
 	(embedded_fonts no)
+	(model "${KIPRJMOD}/3dmodels/TerminalBlock_Metaltex_BR4_1x05_P5.00mm_Horizontal.step"
+		(offset
+			(xyz 0 0 0)
+		)
+		(scale
+			(xyz 1 1 1)
+		)
+		(rotate
+			(xyz 0 0 0)
+		)
+	)
 )

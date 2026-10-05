@@ -3443,6 +3443,17 @@
 			(uuid "f87f78a3-1006-40df-983a-43c08b56e4fc")
 		)
 		(embedded_fonts no)
+		(model "${KIPRJMOD}/3dmodels/LCD_Nokia_5110-3310_bare_frame.step"
+			(offset
+				(xyz 0 0 0)
+			)
+			(scale
+				(xyz 1 1 1)
+			)
+			(rotate
+				(xyz 0 0 0)
+			)
+		)
 	)
 	(footprint "uSonicTimer1d:CP_Elec_4x5.4"
 		(layer "F.Cu")
@@ -6955,6 +6966,17 @@
 			(uuid "3ffd8457-999f-4c60-9f21-0252462d5ef0")
 		)
 		(embedded_fonts no)
+		(model "${KIPRJMOD}/3dmodels/RotaryEncoder_Alps_EC11E_Switch_Vertical_H20mm.step"
+			(offset
+				(xyz 0 0 0)
+			)
+			(scale
+				(xyz 1 1 1)
+			)
+			(rotate
+				(xyz 0 0 0)
+			)
+		)
 	)
 	(footprint "uSonicTimer1d:SOT-223-3_TabPin2"
 		(layer "F.Cu")
@@ -11146,6 +11168,17 @@
 			(uuid "29dc295d-d8fc-4752-8202-7db08a679d4d")
 		)
 		(embedded_fonts no)
+		(model "${KIPRJMOD}/3dmodels/TerminalBlock_Metaltex_BR4_1x05_P5.00mm_Horizontal.step"
+			(offset
+				(xyz 0 0 0)
+			)
+			(scale
+				(xyz 1 1 1)
+			)
+			(rotate
+				(xyz 0 0 0)
+			)
+		)
 	)
 	(footprint "uSonicTimer1d:C_0805_2012Metric"
 		(layer "B.Cu")

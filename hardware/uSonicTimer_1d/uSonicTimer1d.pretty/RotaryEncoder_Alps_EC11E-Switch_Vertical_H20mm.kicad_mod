@@ -384,4 +384,15 @@
 		(uuid "3ffd8457-999f-4c60-9f21-0252462d5ef0")
 	)
 	(embedded_fonts no)
+	(model "${KIPRJMOD}/3dmodels/RotaryEncoder_Alps_EC11E_Switch_Vertical_H20mm.step"
+		(offset
+			(xyz 0 0 0)
+		)
+		(scale
+			(xyz 1 1 1)
+		)
+		(rotate
+			(xyz 0 0 0)
+		)
+	)
 )
