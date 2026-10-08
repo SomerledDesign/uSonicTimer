@@ -44,7 +44,7 @@
  *   damage/harm to you, others or property then you are on your own. This work is experimental.
  *
  */
-// Build 69 — Rev D (PCB rev 1d)
+// Build 70 — Rev D (PCB rev 1d)
 /**
  *  Physical pins listed for comparison to pcb.
  *  in version 1b pcb 2/2023 the CS is connected to ground
@@ -140,7 +140,7 @@
 
 #include <OneWire.h>
 #include <DallasTemperature.h>
-#include <ESPRotary.h>
+// #include <ESPRotary.h> // replaced by the polled decoder in pollEncoder()
 #include <Button2.h>
 #include <U8g2lib.h>
 #include <EEPROM.h>
@@ -188,7 +188,10 @@
 // #define STATUS_LED_PIN ?   (not needed: the backlight is the status LED)
 // bool statusLedOn = false;
 
-#define CLICKS_PER_STEP 4
+// Encoder transitions per detent: 2 = half-cycle encoder (detents rest at both 00 and 11),
+// 4 = full-cycle encoder (one rest state, e.g. always 11). A = B in every detent on the
+// Rev D board; the encoder test screen (hold the button at power-up) shows which one it is.
+#define ENCODER_STEPS_PER_DETENT 2
 // -------------------------------------------------------------------------
 //  NOKIA 5110 LCD
 // #define sclk_pin D5
@@ -220,7 +223,6 @@ DallasTemperature sensors(&oneWire);
 DeviceAddress thermometerAddress; // custom array type to hold 64 bit device address
 
 // Rotary Encoder and button
-ESPRotary r;
 Ticker t;
 Button2 b;
 
@@ -295,6 +297,14 @@ enum ButtonEvent
 };
 int16_t last = 0;            // For rotary encoder reading
 
+// Rotary encoder decoder state (loop context only: never touched by the Ticker, so not volatile)
+uint8_t g_encState = 0;      // last A/B sample, bit1 = A (CLK), bit0 = B (DT)
+int8_t g_encCount = 0;       // transitions since the last detent
+int8_t g_encLastDir = 0;     // direction of the last valid transition
+int16_t g_encPosition = 0;   // detents turned since power-up
+uint16_t g_encEdgesA = 0;    // raw A/B changes, shown on the encoder test screen
+uint16_t g_encEdgesB = 0;
+
 volatile bool down  = false; // Flags for the encoder
 volatile bool up    = false;
 
@@ -325,6 +335,9 @@ void displayMenu();
 void saveSettings();
 void loadSettings();
 void handleLoop();
+void buttonTick();
+void pollEncoder();
+void encoderTestPage();
 void servicePage();
 void sendBufferPolled();
 void readRotaryEncoder();
@@ -363,13 +376,14 @@ void setup()
     ///////////////////////////////////////////////////////////////
     sensors.begin();
 
-    // Initialize rotary encoder
+    // Initialize rotary encoder (polled by pollEncoder() from loop context)
     ///////////////////////////////////////////////////////////////
-    r.begin(ROTARY_PIN1, ROTARY_PIN2, CLICKS_PER_STEP);
     // GPIO16 has no internal pull-up (R9 4K7 is external) and the core's pinMode(16, INPUT_PULLUP)
     // leaves the GPIO16 output enable untouched; INPUT explicitly makes it an input
     pinMode(ROTARY_PIN1, INPUT);
-    last = r.getPosition();
+    pinMode(ROTARY_PIN2, INPUT_PULLUP); // R10 4K7 external as well
+    g_encState = (digitalRead(ROTARY_PIN1) << 1) | digitalRead(ROTARY_PIN2);
+    last = g_encPosition;
     // encoder.setChangedHandler(rotate);
     // encoder.setLeftRotationHandler(rotate);
     // encoder.setRightRotationHandler(rotate);|
@@ -388,7 +402,7 @@ void setup()
 
     // Initialize ticker
     ///////////////////////////////////////////////////////////////
-    t.attach_ms(10, handleLoop); // Call handleLoop every 10ms
+    t.attach_ms(10, buttonTick); // poll the button every 10ms (the encoder is only read in loop context)
 
     // Initialize pins
     ///////////////////////////////////////////////////////////////
@@ -406,6 +420,12 @@ void setup()
     // Read initial temperature
     sensors.requestTemperatures();
     currentTemperature = sensors.getTempFByIndex(0); // TODO: get address of sensor and use that instead
+
+    // hold the encoder button during power-up/reset for the encoder test screen
+    if (digitalRead(ROTARY_BUTTON) == LOW)
+    {
+        encoderTestPage();
+    }
 
     // TODO: setup wifi 
     // this is a no-op for now, but could be implented in the future to allow for OTA updates, remote monitoring, etc.
@@ -441,7 +461,7 @@ void loop()
         {
             down = false;
             up = false;
-            last = r.getPosition(); // drop any further detents of the waking turn
+            last = g_encPosition; // drop any further detents of the waking turn
             g_dimmed = false;
             updateBacklight(true);
         }
@@ -616,7 +636,7 @@ void startTimerPage()
     turnOffHeater();
     g_blStatus = finished ? BL_DONE : BL_IDLE; // pulse until any input when the timer ran out
     g_lastActivityMs = millis();
-    last = r.getPosition(); // ignore any turning done while the timer page was shown
+    last = g_encPosition; // ignore any turning done while the timer page was shown
 }
 
 /**
@@ -974,12 +994,73 @@ void displayMenu()
 /**
  * @brief Handles the loop tasks for the rotary encoder and button.
  *
- * Call this method repeatedly to handle the rotary encoder and button events.
+ * Call this method repeatedly (loop context only: loop(), servicePage(), sendBufferPolled())
+ * to handle the rotary encoder and button events.
  */
 void handleLoop()
 {
-    r.loop();
+    pollEncoder();
     b.loop();
+}
+
+/**
+ * @brief 10ms Ticker callback: button only. The encoder is never read from the Ticker.
+ */
+void buttonTick()
+{
+    b.loop();
+}
+
+/**
+ * @brief Quadrature decoder for the rotary encoder (replaces ESPRotary).
+ *
+ * Reads A (GPIO16) and B (GPIO12) directly and counts Gray-code transitions. Detents are
+ * only counted in a rest state (A == B), so contact bounce cancels out and the count lines
+ * up with the detents by itself. A sample that skipped the middle state (both pins changed)
+ * counts as two steps in the direction of the last valid one. Never yields; call it often.
+ */
+void pollEncoder()
+{
+    // index = old state << 2 | new state; +1/-1 per valid transition, 2 = both pins changed
+    static const int8_t ENC_TABLE[16] = {0, 1, -1, 2, -1, 0, 2, 1, 1, 2, 0, -1, 2, -1, 1, 0};
+    const uint8_t s = (digitalRead(ROTARY_PIN1) << 1) | digitalRead(ROTARY_PIN2);
+    if (s == g_encState)
+    {
+        return;
+    }
+    if ((s ^ g_encState) & 0x02)
+    {
+        g_encEdgesA++;
+    }
+    if ((s ^ g_encState) & 0x01)
+    {
+        g_encEdgesB++;
+    }
+    int8_t step = ENC_TABLE[(g_encState << 2) | s];
+    if (step == 2)
+    {
+        step = 2 * g_encLastDir; // missed a state: assume it kept turning the same way
+    }
+    else
+    {
+        g_encLastDir = step;
+    }
+    g_encState = s;
+    g_encCount += step;
+
+    if (s == 0x00 || s == 0x03) // rest state (A == B)
+    {
+        while (g_encCount >= ENCODER_STEPS_PER_DETENT)
+        {
+            g_encCount -= ENCODER_STEPS_PER_DETENT;
+            g_encPosition++;
+        }
+        while (g_encCount <= -ENCODER_STEPS_PER_DETENT)
+        {
+            g_encCount += ENCODER_STEPS_PER_DETENT;
+            g_encPosition--;
+        }
+    }
 }
 
 /**
@@ -1001,7 +1082,7 @@ void servicePage()
  *
  * A full software-SPI sendBuffer() blocks for roughly 14ms. The Ticker cannot run during it,
  * so the encoder was only sampled about once per redraw and a detent that snapped through all
- * four transitions between two samples was never seen. Sending 18 pieces of 4x1 tiles keeps
+ * of its transitions between two samples was never seen. Sending 18 pieces of 4x1 tiles keeps
  * the gap between encoder samples under ~1ms. Safe in any context (no yield()).
  */
 void sendBufferPolled()
@@ -1021,7 +1102,7 @@ void sendBufferPolled()
 
 void readRotaryEncoder()
 {
-    int16_t position = r.getPosition();
+    const int16_t position = g_encPosition;
 
     // consume one detent per call so steps that arrive during a redraw are not dropped
     if (position > last)
@@ -1036,6 +1117,62 @@ void readRotaryEncoder()
         up = true;
         noteActivity();
     }
+}
+
+/**
+ * @brief Encoder test screen: hold the encoder button during power-up/reset to get here.
+ *
+ * Shows the live A (GPIO16) and B (GPIO12) levels, the detent count and how often each input
+ * has changed. Turning should make both edge counts rise together. An edge count that stays
+ * at 0 means that input never reaches the ESP8266 (check the module pad/trace), not firmware.
+ * Resting levels that alternate 00/11 between detents mean ENCODER_STEPS_PER_DETENT 2.
+ * Long press exits to the main menu.
+ */
+void encoderTestPage()
+{
+    // wait for the power-up press to be released, then drop that press
+    while (digitalRead(ROTARY_BUTTON) == LOW)
+    {
+        servicePage();
+    }
+    const unsigned long released = millis();
+    while (millis() - released < 100)
+    {
+        servicePage();
+    }
+    readButton();
+
+    while (true)
+    {
+        servicePage();
+        u8g2.clearBuffer();
+        u8g2.setFont(u8g2_font_6x10_tf);
+        u8g2.setDrawColor(1);
+        u8g2.setCursor(0, 10);
+        u8g2.print("A:");
+        u8g2.print(g_encState >> 1);
+        u8g2.print(" B:");
+        u8g2.print(g_encState & 0x01);
+        u8g2.print(" D:");
+        u8g2.print(g_encPosition);
+        u8g2.setCursor(0, 20);
+        u8g2.print("A edges: ");
+        u8g2.print(g_encEdgesA);
+        u8g2.setCursor(0, 30);
+        u8g2.print("B edges: ");
+        u8g2.print(g_encEdgesB);
+        u8g2.setCursor(0, 40);
+        u8g2.print("Long: exit");
+        sendBufferPolled();
+
+        if (readButton() == BUTTON_LONG)
+        {
+            break;
+        }
+    }
+    last = g_encPosition;
+    down = false;
+    up = false;
 }
 
 // =================================================================

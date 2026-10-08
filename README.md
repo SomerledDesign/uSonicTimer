@@ -36,6 +36,12 @@ or confirm instead. After 5 minutes without input in the menu the backlight dims
 first turn or press then only wakes it. Every button press is handled exactly once, so a press never
 carries over into the next page.
 
+**Encoder test:** hold the button while powering up (or pressing reset) to get a test screen with the
+live A/B levels, the detent count and how often each input has changed; long press returns to the
+menu. Both edge counts should rise together while turning. `ENCODER_STEPS_PER_DETENT` in
+`src/main.cpp` is 2 for an encoder whose detents rest at both 00 and 11, 4 for one that always rests
+at the same state.
+
 The backlight also shows the status (it swings between the set brightness and about 30 % of it, so
 the screen stays readable):
 
@@ -78,8 +84,8 @@ The KiCad design files for this board are in [`hardware/uSonicTimer_1d/`](hardwa
 | LCD CS | D4 | GPIO2 | 17 | 10K pull-up |
 | LCD RST | – | – | – | not connected (`U8X8_PIN_NONE`) |
 | LCD backlight | D8 | GPIO15 | 16 | via Q1, 10K pull-down |
-| Encoder CLK (A) | D0 | GPIO16 | 4 | 10K pull-up, polled (no interrupt on GPIO16) |
-| Encoder DT (B) | D6 | GPIO12 | 6 | |
+| Encoder CLK (A) | D0 | GPIO16 | 4 | 4K7 pull-up (R9), polled (no interrupt on GPIO16) |
+| Encoder DT (B) | D6 | GPIO12 | 6 | 4K7 pull-up (R10), polled |
 | Encoder SW | D9 | GPIO3 (RX) | 21 | shared with UART RX |
 | Heater SSR | D2 | GPIO4 | 19 | HIGH = ON |
 | Cleaner SSR | D1 | GPIO5 | 20 | HIGH = ON |
