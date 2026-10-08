@@ -599,7 +599,7 @@ void startTimerPage()
         u8g2.setFont(u8g2_font_6x10_tf);
         // 84 px / 6 px font = 14 characters per line
         u8g2.setCursor(0, 10);
-        u8g2.print("Time Left:");
+        u8g2.print("Time:");
         u8g2.setCursor(0, 20);
         u8g2.print(remainingTime / 60);
         u8g2.print(":");
