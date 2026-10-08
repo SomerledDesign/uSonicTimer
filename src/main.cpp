@@ -178,6 +178,9 @@
 #define LCD_RST_PIN U8X8_PIN_NONE
 // Status LED
 // TODO: maybe use the backlight as a Status?  Pulsing, Flashing, Steady, Dim?
+// Pulsing = ?
+// Flashing = Heating up
+// Steady = normal operation
 // #define STATUS_LED_PIN ?
 // bool statusLedOn = false;
 
@@ -342,13 +345,12 @@ void setup()
     sensors.requestTemperatures();
     currentTemperature = sensors.getTempFByIndex(0); // TODO: get address of sensor and use that instead
 
-    // TODO: setup wifi
+    // TODO: setup wifi 
+    // this is a no-op for now, but could be implented in the future to allow for OTA updates, remote monitoring, etc.
 
     // TODO: setup ntp
     // incorporate easy NTP TZ DST.cpp
-
-    // TODO: setup rtc
-    // incorporate easy NTP TZ DST.cpp
+    // also a no-op for now, but could be implemented in the future to allow for time-based operations, logging, etc.
 
     debugln("...setup Complete.");
 }
