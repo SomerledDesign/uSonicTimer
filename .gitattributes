@@ -1,0 +1,9 @@
+# Normalise line endings so Mac and Windows checkouts don't show phantom changes
+* text=auto eol=lf
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.png binary
+*.jpg binary
+*.pdf binary
+*.bin binary
+*.zip binary
