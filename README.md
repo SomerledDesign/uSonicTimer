@@ -175,6 +175,9 @@ History:
 - `include/ust_logic.h`: run-control hysteresis, °F/°C, contrast and progress helpers (no Arduino
   dependencies).
 - `include/bigfont.h`: the big-digit glyphs (from the Adafruit 5x7 font, slashed zero kept).
+- `tools/host/`: host-side test of `ust_logic.h` and a screen preview that runs the real drawing
+  code against the U8g2 C library on a PC (`tools/host/build.sh`, writes PNGs to
+  `tools/host/out/`).
 - `src/sketch.md`: design notes and the original specification.
 - `include/`: also the old splash/footer glyph bitmaps.
 - `handoff.md`: latest status and decisions.
