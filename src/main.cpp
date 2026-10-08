@@ -3,8 +3,8 @@
  * @remarks uSonicTimer
  * @author Kevin Murphy (https://www.SomerledDesign.com)
  * @brief an addition to an old, inexpensive Ultrasonic cleaner to include heating and timing
- * @version 0.5.0 (71)
- * @date 08/28/24
+ * @version 0.6.0 (72)
+ * @date 10/08/26
  *
  * @copyright Copyright (c) 2024 Somerled Design, LLC in Kevin Murphy
  *
@@ -37,6 +37,8 @@
  *   .200 - 01/29/22 - rewrite with u8g2lib as display driver
  *   .300 - 08/20/24 - rewrite by GROK2.mini
  *   .400 - 08/28/24 - rewrite of Grok2 code by Kevin Murphy
+ *   0.6.0 (72) - 10/08/26 - big-digit run screens (timer holds while heating), Settings menu,
+ *                           F/C units, backlight 0 = off, contrast shown as 20-100
  *
  * DISCLAIMER:
  *   With this design, including both the hardware & software I offer no guarantee that it is bug
@@ -44,11 +46,11 @@
  *   damage/harm to you, others or property then you are on your own. This work is experimental.
  *
  */
-// Firmware version, shown as "0.5.0 (71)": semantic version MAJOR.MINOR.PATCH plus a build number.
+// Firmware version, shown as "0.6.0 (72)": semantic version MAJOR.MINOR.PATCH plus a build number.
 // Bump PATCH for fixes, MINOR for features; 1.0.0 once it is installed and in service.
 // FW_BUILD goes up by 1 for every build flashed for testing and never resets.
-#define FW_VERSION "0.5.0"
-#define FW_BUILD 71
+#define FW_VERSION "0.6.0"
+#define FW_BUILD 72
 #define HW_REV "D" // PCB rev 1d
 /**
  *  Physical pins listed for comparison to pcb.
@@ -150,6 +152,8 @@
 #include <U8g2lib.h>
 #include <EEPROM.h>
 #include "Ticker.h" // https://github.com/esp8266/Arduino/tree/master/libraries/Ticker
+#include "ust_logic.h" // run control (hysteresis), units, contrast and progress helpers
+#include "screens.h"   // page drawing (big-digit run screens, menus, settings pages)
 
 #ifdef WITH_GDB
 #include "GDBStub.h"
@@ -184,12 +188,12 @@
 #define LCD_RST_PIN U8X8_PIN_NONE
 // Status LED
 // The backlight (PWM on GPIO15) is used as the status indicator, see updateBacklight():
-// Steady       = normal operation (menu idle, cleaning) at the Backlight menu brightness
+// Steady       = normal operation (menu idle, cleaning) at the Set backlight level
 // Flashing     = Heating up (1 Hz between the set brightness and ~30% of it)
 // Pulsing      = timer finished, until any input (shows even if the backlight is toggled off)
 // Double-blink = no temp sensor during a run, heater locked off (shows even if toggled off)
 // Dim          = ~20% after 5 minutes idle in the menu; the first input only wakes it
-// Heating/cleaning stay dark when the backlight has been toggled off.
+// Heating/cleaning stay dark when the backlight has been toggled off or set to level 0.
 // #define STATUS_LED_PIN ?   (not needed: the backlight is the status LED)
 // bool statusLedOn = false;
 
@@ -247,36 +251,41 @@ Button2 b;
 float currentTemperature = 0;
 uint8_t g_setTemperatureF;   // The set temperature in Fahrenheit
 uint8_t g_timerSetting;      // The timer to be set in minutes
-uint8_t tempOffset = 10;     // Offset in Fahrenheit for heater control
-uint8_t g_contrast;          // The contrast for the display
+uint8_t g_contrast;          // The contrast for the display (raw U8g2 value 80..200)
+bool g_unitsC = false;       // display unit: false = F, true = C (control logic is always F)
 uint16_t longPress = 1000;   // one second long press of button
-bool g_backlightOn = true;   // backlight state; toggled by a short press on the main menu
-uint8_t g_backlightLevel;    // backlight brightness level 1..10 (Backlight menu)
-uint8_t g_previewLevel = 0;  // non-zero while the Backlight page previews a level
+bool g_backlightOn = true;   // backlight state; toggled by a short press in the menus
+uint8_t g_backlightLevel;    // backlight brightness level 0..10 (0 = off; Set backlight page)
+uint8_t g_previewLevel = 0;  // level previewed while the Set backlight page is open
+bool g_previewActive = false; // true while the Set backlight page previews g_previewLevel
 
 // EEPROM layout (one byte per setting; addresses kept from earlier firmware so saved
-// temperature/timer/contrast values survive the update)
+// temperature/timer/contrast/backlight values survive the update)
 #define EEPROM_SIZE           512
 #define EEPROM_ADDR_SET_TEMP  0x00 // uint8_t g_setTemperatureF
 #define EEPROM_ADDR_TIMER     0x08 // uint8_t g_timerSetting
-#define EEPROM_ADDR_CONTRAST  0x10 // uint8_t g_contrast
+#define EEPROM_ADDR_CONTRAST  0x10 // uint8_t g_contrast, raw 80..200 (shown as 20..100)
 #define EEPROM_ADDR_BACKLIGHT 0x18 // uint8_t g_backlightLevel
+#define EEPROM_ADDR_UNITS     0x20 // uint8_t UNITS_F / UNITS_C (new in 0.6.0)
+#define EEPROM_ADDR_LAYOUT    0x28 // uint8_t EEPROM_LAYOUT_ID, written by 0.6.0 and later
+#define EEPROM_LAYOUT_ID      0x60 // marks a layout that knows backlight level 0 and the units byte
+#define UNITS_F               0
+#define UNITS_C               1
 static_assert(EEPROM_ADDR_SET_TEMP + sizeof(uint8_t) <= EEPROM_ADDR_TIMER, "EEPROM: set temp overlaps timer");
 static_assert(EEPROM_ADDR_TIMER + sizeof(uint8_t) <= EEPROM_ADDR_CONTRAST, "EEPROM: timer overlaps contrast");
 static_assert(EEPROM_ADDR_CONTRAST + sizeof(uint8_t) <= EEPROM_ADDR_BACKLIGHT, "EEPROM: contrast overlaps backlight");
-static_assert(EEPROM_ADDR_BACKLIGHT + sizeof(uint8_t) <= EEPROM_SIZE, "EEPROM: backlight outside EEPROM");
+static_assert(EEPROM_ADDR_BACKLIGHT + sizeof(uint8_t) <= EEPROM_ADDR_UNITS, "EEPROM: backlight overlaps units");
+static_assert(EEPROM_ADDR_UNITS + sizeof(uint8_t) <= EEPROM_ADDR_LAYOUT, "EEPROM: units overlaps layout id");
+static_assert(EEPROM_ADDR_LAYOUT + sizeof(uint8_t) <= EEPROM_SIZE, "EEPROM: layout id outside EEPROM");
 
-// Valid setting ranges (erased flash reads 0xFF and a bare module may hold leftover bytes)
-#define SET_TEMP_MIN_F    60
-#define SET_TEMP_MAX_F    180
+// Valid setting ranges (erased flash reads 0xFF and a bare module may hold leftover bytes).
+// Set temperature and contrast ranges are in ust_logic.h.
 #define TIMER_MIN_MINUTES 1
 #define TIMER_MAX_MINUTES 60
-#define CONTRAST_MIN      80  // U8g2 sends contrast >> 1 as the PCD8544 Vop
-#define CONTRAST_MAX      200
-#define CONTRAST_DEFAULT  128 // = Vop 0x40, the U8g2 init value
-#define BACKLIGHT_MIN     1   // level 0 is not offered, so a saved level can't leave the screen dark
+#define BACKLIGHT_MIN     0   // 0 = off (status pulse/double-blink still show, see updateBacklight())
 #define BACKLIGHT_MAX     10
 #define BACKLIGHT_DEFAULT 10  // = fully on, as before
+#define BL_OFF_STATUS_LEVEL 5 // brightness of the done pulse / fault blink when the level is 0
 
 // Backlight PWM and status effects
 #define BACKLIGHT_PWM_FREQ   1000 // Hz; flicker-free, no whine, light interrupt load (timer1)
@@ -291,6 +300,7 @@ static_assert(EEPROM_ADDR_BACKLIGHT + sizeof(uint8_t) <= EEPROM_SIZE, "EEPROM: b
 
 // PWM duty (0-255) for levels 1..10; roughly perceptual (the eye is far more sensitive at the low end)
 static const uint8_t BACKLIGHT_LEVEL_DUTY[BACKLIGHT_MAX] = {4, 8, 14, 24, 38, 56, 80, 110, 160, 255};
+static_assert(BL_OFF_STATUS_LEVEL >= 1 && BL_OFF_STATUS_LEVEL <= BACKLIGHT_MAX, "BL_OFF_STATUS_LEVEL out of range");
 
 // What the backlight is currently showing
 enum BacklightStatus
@@ -329,25 +339,42 @@ volatile bool up    = false;
 volatile bool cleanerOn = false; // State of the cleaner
 volatile bool heaterOn = false;  // State of the heater
 
-// Menu structure
-enum MenuItems
+// Menu structure: main menu and the Settings... submenu (both drawn by displayMenu())
+enum MenuLevel
 {
-    START_TIMER,
-    SET_TIMER,
-    SET_TEMP,
-    CONTRAST,
-    BACKLIGHT,
-    MENU_ITEMS_COUNT
+    MENU_MAIN,
+    MENU_SETTINGS
 };
-#define MENU_VISIBLE_ROWS 4 // 48 px / 10 px rows; the main menu scrolls to keep the highlight visible
-uint8_t g_currentMenu = START_TIMER;
+enum MainItems
+{
+    MAIN_START,
+    MAIN_SETTINGS,
+    MAIN_ITEMS_COUNT
+};
+enum SettingsItems
+{
+    SETTINGS_TEMP,
+    SETTINGS_TIME,
+    SETTINGS_UNITS,
+    SETTINGS_BACKLIGHT,
+    SETTINGS_CONTRAST,
+    SETTINGS_EXIT,
+    SETTINGS_ITEMS_COUNT
+};
+uint8_t g_menuLevel = MENU_MAIN;
+uint8_t g_currentMenu = MAIN_START;      // highlighted main menu item
+uint8_t g_settingsItem = SETTINGS_TEMP;  // highlighted Settings item
 
 // Function definitions
 void startTimerPage();
+void showDonePage();
 void setTimerSubmenu();
 void setTemperatureSubmenu();
+void setUnitsSubmenu();
 void adjustContrast();
 void setBacklightSubmenu();
+bool backlightLit();
+const char *unitSuffix();
 void displayMenu();
 void saveSettings();
 void loadSettings();
@@ -496,81 +523,103 @@ void loop()
         }
         return;
     }
-    if (g_backlightOn && g_blStatus == BL_IDLE && (millis() - g_lastActivityMs) >= IDLE_DIM_MS)
+    if (backlightLit() && g_blStatus == BL_IDLE && (millis() - g_lastActivityMs) >= IDLE_DIM_MS)
     {
         g_dimmed = true;
     }
 
-    // handle encoder events on various menuItems
+    // handle encoder events: move the highlight in the current menu (wraps around)
     ////////////////////////////////////////////
+    const bool inSettings = (g_menuLevel == MENU_SETTINGS);
+    const uint8_t count = inSettings ? static_cast<uint8_t>(SETTINGS_ITEMS_COUNT) : static_cast<uint8_t>(MAIN_ITEMS_COUNT);
+    uint8_t &selected = inSettings ? g_settingsItem : g_currentMenu;
     if (down)
     {
         debug("down rotate...");
-
         down = false;
-        g_currentMenu = (g_currentMenu + 1) % MENU_ITEMS_COUNT;
-    } // wrap around to first menu item when going down
-    
+        selected = (selected + 1) % count;
+    }
     if (up)
     {
         debug("up rotate...");
         up = false;
-        g_currentMenu = (g_currentMenu + MENU_ITEMS_COUNT - 1) % MENU_ITEMS_COUNT;
-    } // wrap around to last menu item when going up
+        selected = (selected + count - 1) % count;
+    }
 
-    // handle button events on various menuItems
+    // handle button events: long press opens the highlighted item
     ////////////////////////////////////////////
-
-    if (event != BUTTON_NONE)
+    if (event == BUTTON_LONG)
     {
-        if (event == BUTTON_LONG)
+        if (!inSettings)
         {
             switch (g_currentMenu)
             {
-            case START_TIMER:
-                debug("b.waspressfor longpress on START_TIMER menuitem...");
+            case MAIN_START:
+                debug("long press on Start...");
                 startTimerPage();
                 break;
-            case SET_TIMER:
-                setTimerSubmenu();
-                break;
-            case SET_TEMP:
-                setTemperatureSubmenu();
-                break;
-            case CONTRAST:
-                adjustContrast();
-                break;
-            case BACKLIGHT:
-                setBacklightSubmenu();
+            case MAIN_SETTINGS:
+                g_menuLevel = MENU_SETTINGS;
+                g_settingsItem = SETTINGS_TEMP;
                 break;
             default:
-                // do nothing (how did we get here?)
                 break;
             }
         }
         else
         {
-            // short press on the main menu toggles the backlight;
-            // submenus use short presses for their own purposes and leave it alone
-            toggleBacklight();
+            switch (g_settingsItem)
+            {
+            case SETTINGS_TEMP:
+                setTemperatureSubmenu();
+                break;
+            case SETTINGS_TIME:
+                setTimerSubmenu();
+                break;
+            case SETTINGS_UNITS:
+                setUnitsSubmenu();
+                break;
+            case SETTINGS_BACKLIGHT:
+                setBacklightSubmenu();
+                break;
+            case SETTINGS_CONTRAST:
+                adjustContrast();
+                break;
+            default: // SETTINGS_EXIT
+                g_menuLevel = MENU_MAIN;
+                break;
+            }
         }
-
         debugln("Loop complete.");
+    }
+    else if (event == BUTTON_SHORT)
+    {
+        // short press in the menus toggles the backlight;
+        // pages use short presses for their own purposes and leave it alone
+        toggleBacklight();
     }
 }
 
 /**
- * @brief Shows the timer page
+ * @brief Runs the cleaner: heats first, then counts down while cleaning.
  *
- * This function is called when the user selects the "Start Timer"
- * menu item. It will display the timer counting down and
- * control the heater and ultrasonic cleaner. The user can
- * exit the timer page by pressing the button.
+ * Called when the user selects "Start". The countdown holds while the heater is on and only
+ * runs while the water is within 10 F of the set temperature (cleaner on), see nextRunState():
+ *   heating  -> heater on, cleaner off, countdown held; big current temperature on screen
+ *   cleaning -> heater off, cleaner on, counting down; big MM:SS on screen
+ *   The heater comes on below (set - 10 F) and cleaning resumes at (set - 8 F).
+ *   no sensor -> fail-safe: heater off, cleaner on, counting down; "NO SENSOR" under the time
+ * A long press aborts. When the time is up both outputs go off and the DONE screen stays
+ * until any input.
  */
 void startTimerPage()
 {
-    unsigned long startTime = millis();
+    const uint32_t totalMs = static_cast<uint32_t>(g_timerSetting) * 60UL * 1000UL;
+    uint32_t elapsedMs = 0;   // run time; only advances while cleaning (or without a sensor)
     bool finished = false;
+    RunState state = RUN_START;
+    float heatStartF = 0.0f;  // temperature when the heater (re)engaged, for the progress rule
+    char line[24];
 
     // one blocking read so the first heater decision uses a fresh temperature, then non-blocking
     // conversions so the page (encoder, button, backlight status) keeps running during the 750ms
@@ -579,23 +628,26 @@ void startTimerPage()
     sensors.setWaitForConversion(false);
     sensors.requestTemperatures();
     unsigned long lastRequest = millis();
+    unsigned long lastTick = millis();
 
     while (true)
     {
         servicePage();
-        unsigned long currentTime = millis();
-        int32_t remainingTime = static_cast<int32_t>(g_timerSetting) * 60 -
-                                static_cast<int32_t>((currentTime - startTime) / 1000);
-
-        if (remainingTime <= 0)
+        const unsigned long now = millis();
+        // the time since the last pass counts only if that pass was cleaning (or had no sensor)
+        if (runStateCounts(state))
         {
-            turnOffCleaner();
-            turnOffHeater();
+            elapsedMs += now - lastTick;
+        }
+        lastTick = now;
+
+        if (elapsedMs >= totalMs)
+        {
             finished = true;
             break;
         }
 
-        if (millis() - lastRequest >= TEMP_CONVERSION_MS)
+        if (now - lastRequest >= TEMP_CONVERSION_MS)
         {
             currentTemperature = sensors.getTempFByIndex(0);
             sensors.requestTemperatures();
@@ -604,54 +656,48 @@ void startTimerPage()
         // no sensor (DEVICE_DISCONNECTED_F = -196.6F) must never leave the heater on
         const bool sensorOk = currentTemperature > (DEVICE_DISCONNECTED_F + 1.0f);
 
-        if (!sensorOk)
+        const RunState next = nextRunState(state, sensorOk, currentTemperature, g_setTemperatureF);
+        if (next == RUN_HEATING && state != RUN_HEATING)
         {
+            heatStartF = currentTemperature; // progress rule starts from here
+        }
+        state = next;
+
+        // switch the output that goes off first, so heater and cleaner are never on together
+        switch (state)
+        {
+        case RUN_HEATING:
+            turnOffCleaner();
+            turnOnHeater();
+            g_blStatus = BL_HEATING;
+            break;
+        case RUN_NO_SENSOR:
             // fail-safe: heater off, cleaner still runs for the timer (cleaning without temp control)
             turnOffHeater();
             turnOnCleaner();
             g_blStatus = BL_FAULT;
-        }
-        else if (currentTemperature < (g_setTemperatureF - tempOffset))
-        {
-            turnOnHeater();
-            turnOffCleaner();
-            g_blStatus = BL_HEATING;
-        }
-        else
-        {
+            break;
+        default: // RUN_CLEANING
             turnOffHeater();
             turnOnCleaner();
             g_blStatus = BL_CLEANING;
+            break;
         }
 
-        u8g2.clearBuffer();
-        u8g2.setFont(u8g2_font_6x10_tf);
-        // 84 px / 6 px font = 14 characters per line
-        u8g2.setCursor(0, 10);
-        u8g2.print("Time:");
-        u8g2.setCursor(0, 20);
-        u8g2.print(remainingTime / 60);
-        u8g2.print(":");
-        if ((remainingTime % 60) < 10)
+        const int16_t setShown = displayTemp(g_setTemperatureF, g_unitsC);
+        if (state == RUN_HEATING)
         {
-            u8g2.print("0");
-        }
-        u8g2.print(remainingTime % 60);
-        u8g2.setCursor(0, 30);
-        if (sensorOk)
-        {
-            u8g2.print("Now: ");
-            u8g2.print(currentTemperature, 1);
-            u8g2.print("F");
+            snprintf(line, sizeof(line), "Heating to %d%s", setShown, unitSuffix());
+            drawHeatingScreen(u8g2, displayTemp(currentTemperature, g_unitsC), g_unitsC,
+                              heatProgressPx(heatStartF, currentTemperature, g_setTemperatureF, LCD_WIDTH), line);
         }
         else
         {
-            u8g2.print("Temp: --");
+            formatTimerLine(u8g2, line, sizeof(line), sensorOk, displayTemp(currentTemperature, g_unitsC), setShown, g_unitsC);
+            // colon blinks at 1 Hz with the counted time
+            drawTimerScreen(u8g2, remainingSeconds(totalMs, elapsedMs), (elapsedMs % 1000UL) < 500UL,
+                            progressPx(static_cast<int32_t>(elapsedMs), static_cast<int32_t>(totalMs), LCD_WIDTH), line);
         }
-        u8g2.setCursor(0, 40);
-        u8g2.print("Set: ");
-        u8g2.print(g_setTemperatureF);
-        u8g2.print("F");
         sendBufferPolled();
 
         // long press aborts the timer
@@ -666,10 +712,42 @@ void startTimerPage()
     g_blStatus = finished ? BL_DONE : BL_IDLE; // pulse until any input when the timer ran out
     g_lastActivityMs = millis();
     last = g_encPosition; // ignore any turning done while the timer page was shown
+    down = false;
+    up = false;
+    if (finished)
+    {
+        showDonePage();
+    }
 }
 
 /**
- * @brief Shows the timer selection submenu
+ * @brief Big "DONE" screen after a completed run; any turn or press returns to the menu.
+ *
+ * The backlight keeps pulsing (BL_DONE) until that input, see noteActivity().
+ */
+void showDonePage()
+{
+    char line[20];
+    snprintf(line, sizeof(line), "Cleaned %u min", static_cast<unsigned>(g_timerSetting));
+    drawDoneScreen(u8g2, line);
+    sendBufferPolled();
+    while (true)
+    {
+        servicePage();
+        readRotaryEncoder();
+        const ButtonEvent event = readButton();
+        if (down || up || event != BUTTON_NONE)
+        {
+            break;
+        }
+    }
+    down = false;
+    up = false;
+    last = g_encPosition;
+}
+
+/**
+ * @brief Shows the timer selection page (Settings > Set time)
  *
  * The user can cycle through the available preset times (3, 8, 10, 15, 20, 30, 60 minutes)
  * by rotating the encoder. The selected time is displayed on the screen.
@@ -693,13 +771,9 @@ void setTimerSubmenu()
     {
         servicePage();
         readRotaryEncoder();
-        u8g2.clearBuffer();
-        u8g2.setFont(u8g2_font_6x10_tf);
-        u8g2.setCursor(0, 10);
-        u8g2.print("Set Timer:");
-        u8g2.setCursor(0, 22);
-        u8g2.print(presets[selectedIndex]);
-        u8g2.print(" min");
+        char value[12];
+        snprintf(value, sizeof(value), "%u min", static_cast<unsigned>(presets[selectedIndex]));
+        drawValuePage(u8g2, "Set time", value, 0, 0, "Press = save");
         sendBufferPolled();
 
         if (down)
@@ -723,69 +797,34 @@ void setTimerSubmenu()
 }
 
 /**
- * @brief Shows the temperature selection submenu
+ * @brief Shows the temperature selection page (Settings > Set temp)
  *
- * The user can cycle through the three digits of the temperature by rotating the encoder.
- * The selected digit is highlighted on the screen.
- * The user can confirm the selection by pressing the encoder button, which will
- * save the new setting and exit the menu.
- * Holding the encoder button down for more than 1 second will also save and exit.
+ * Edits the set temperature in the display unit: 3 digits in F (60..180), 2 in C (16..82).
+ * Short press moves the cursor digit (shown in reverse video), rotating changes it (0-9, wraps),
+ * long press saves and exits. The value is always stored in whole F; a C value that was not
+ * changed leaves the stored F value as it was.
  */
 void setTemperatureSubmenu()
 {
+    const bool celsius = g_unitsC;
+    const uint8_t n = celsius ? 2 : 3;
+    const int16_t shown = displayTemp(g_setTemperatureF, celsius);
     uint8_t cursorPosition = 0;
-    /*
-     * This line of code is initializing an array  of 3 unsigned 8-bit
-     * integers (uint8_t digits[3]) with the individual digits of the
-     * temperature value stored in g_setTemperatureF.
-     *
-     * Here's a breakdown of how it's done:
-     *
-     * g_setTemperatureF % 10 gets the last digit (ones place)of the
-     * temperature value.
-     * (g_setTemperatureF / 10) % 10 gets the middle digit (tens place)
-     * of the temperature value. The division by 10 shifts the digits
-     * one place to the right, and then the modulo 10 operation gets
-     * the last digit of the result, which is the original tens place.
-     * g_setTemperatureF / 100 gets the first digit (hundreds place)
-     * of the temperature value. The division by 100 shifts the digits
-     * two places to the right.
-     * For example, if g_setTemperatureF is 123, the array digits would
-     * be initialized with the values {3, 2, 1}.
-     *
-     */
 
-    uint8_t digits[3] = {
-        static_cast<uint8_t>(g_setTemperatureF / 100),
-        static_cast<uint8_t>((g_setTemperatureF / 10) % 10),
-        static_cast<uint8_t>(g_setTemperatureF % 10)};
+    // split the value into digits, most significant first (e.g. 123 -> {1, 2, 3})
+    uint8_t digits[3] = {0, 0, 0};
+    int16_t v = (shown < 0) ? 0 : shown;
+    for (int8_t i = n - 1; i >= 0; i--)
+    {
+        digits[i] = static_cast<uint8_t>(v % 10);
+        v /= 10;
+    }
 
     while (true)
     {
         servicePage();
         readRotaryEncoder();
-        u8g2.clearBuffer();
-        u8g2.setFont(u8g2_font_6x10_tf);
-        u8g2.setDrawColor(1);
-        u8g2.setCursor(0, 10);
-        u8g2.print("Set Temp:");
-
-        // same layout as Contrast: digits on line 3, cursor digit in reverse video
-        const uint8_t baseX = 0;
-        const uint8_t baseY = 30;
-        for (uint8_t i = 0; i < 3; i++)
-        {
-            if (i == cursorPosition)
-            {
-                u8g2.drawBox(baseX + (i * 10), baseY - 8, 10, 10);
-                u8g2.setDrawColor(0);
-            }
-            u8g2.setCursor(baseX + (i * 10) + 2, baseY); // +2 centres the 6 px glyph in the 10 px box
-            u8g2.print(digits[i]);
-            u8g2.setDrawColor(1); // always restore the draw colour
-        }
-        u8g2.setCursor(baseX + 32, baseY);
-        u8g2.print("F");
+        drawDigitEditor(u8g2, "Set temp", digits, n, cursorPosition, unitSuffix(), "Hold = save");
         sendBufferPolled();
 
         if (down)
@@ -796,7 +835,7 @@ void setTemperatureSubmenu()
         else if (up)
         {
             up = false;
-            digits[cursorPosition] = (digits[cursorPosition] - 1 + 10) % 10;
+            digits[cursorPosition] = (digits[cursorPosition] + 10 - 1) % 10;
         }
 
         const ButtonEvent event = readButton();
@@ -804,14 +843,22 @@ void setTemperatureSubmenu()
         // short press moves the cursor position
         if (event == BUTTON_SHORT)
         {
-            cursorPosition = (cursorPosition + 1) % 3;
+            cursorPosition = (cursorPosition + 1) % n;
         }
 
         // long press will save and exit
         if (event == BUTTON_LONG)
         {
-            const uint16_t newTemp = digits[0] * 100 + digits[1] * 10 + digits[2];
-            g_setTemperatureF = static_cast<uint8_t>(constrain(newTemp, SET_TEMP_MIN_F, SET_TEMP_MAX_F));
+            int16_t newValue = 0;
+            for (uint8_t i = 0; i < n; i++)
+            {
+                newValue = newValue * 10 + digits[i];
+            }
+            if (newValue != shown)
+            {
+                g_setTemperatureF = celsius ? setTempFromC(newValue)
+                                            : static_cast<uint8_t>(constrain(newValue, SET_TEMP_MIN_F, SET_TEMP_MAX_F));
+            }
             saveSettings();
             break;
         }
@@ -819,94 +866,102 @@ void setTemperatureSubmenu()
 }
 
 /**
- * @brief Adjusts the display contrast
+ * @brief Chooses the display unit (Settings > Set units): rotate toggles F/C, any press saves.
  *
- * Allows the user to cycle through contrast settings with the rotary encoder.
- * The selected contrast is highlighted on the display.
- * When the user presses the button, the current contrast is saved and the menu exits.
+ * Only the display changes; control stays in F and the set temperature is stored in F.
  */
-void adjustContrast()
+void setUnitsSubmenu()
 {
-    uint8_t cursorPosition = 0;
-    uint8_t contrastValue = g_contrast;
+    bool celsius = g_unitsC;
     while (true)
     {
         servicePage();
         readRotaryEncoder();
-        u8g2.clearBuffer();
-        u8g2.setFont(u8g2_font_6x10_tf);
-        u8g2.setCursor(0, 10);
-        u8g2.print("Contrast:");
+        drawValuePage(u8g2, "Set units", celsius ? DEG_SIGN "C Celsius" : DEG_SIGN "F Fahrenheit", 0, 0, "Press = save");
+        sendBufferPolled();
 
-        uint8_t digits[3] = {
-            static_cast<uint8_t>(contrastValue / 100),
-            static_cast<uint8_t>((contrastValue / 10) % 10),
-            static_cast<uint8_t>(contrastValue % 10)};
-
-        const uint8_t baseX = 0;
-        const uint8_t baseY = 30;
-        for (uint8_t i = 0; i < 3; i++)
+        if (down || up)
         {
-            if (i == cursorPosition)
-            {
-                u8g2.setDrawColor(1);
-                u8g2.drawBox(baseX + (i * 10), baseY - 8, 10, 10);
-                u8g2.setDrawColor(0);
-            }
-            u8g2.setCursor(baseX + (i * 10) + 2, baseY); // +2 centres the 6 px glyph in the 10 px box
-            u8g2.print(digits[i]);
-            u8g2.setDrawColor(1);
+            down = false;
+            up = false;
+            celsius = !celsius;
         }
 
+        if (readButton() != BUTTON_NONE)
+        {
+            if (celsius != g_unitsC)
+            {
+                g_unitsC = celsius;
+                saveSettings();
+            }
+            break;
+        }
+    }
+}
+
+/**
+ * @brief Adjusts the display contrast (Settings > Set contrast)
+ *
+ * Shows the contrast as 20..100, mapped linearly onto the usable raw range 80..200
+ * (outside it the display blanks). Clockwise increases; applied live. A long press saves
+ * and exits. Leaving the value unchanged keeps the exact raw value saved before.
+ */
+void adjustContrast()
+{
+    const uint8_t startUi = contrastRawToUi(g_contrast);
+    uint8_t ui = startUi;
+    uint8_t applied = g_contrast;
+    while (true)
+    {
+        servicePage();
+        readRotaryEncoder();
+        char value[6];
+        snprintf(value, sizeof(value), "%u", static_cast<unsigned>(ui));
+        drawValuePage(u8g2, "Set contrast", value, ui - CONTRAST_UI_MIN, CONTRAST_UI_MAX - CONTRAST_UI_MIN, "Hold = save");
         sendBufferPolled();
 
         // clockwise (down) = increase, same as the other pages
         if (down)
         {
             down = false;
-            const uint8_t step = (cursorPosition == 0) ? 100 : (cursorPosition == 1) ? 10
-                                                                                     : 1;
-            contrastValue = static_cast<uint8_t>(min(contrastValue + step, CONTRAST_MAX));
+            if (ui < CONTRAST_UI_MAX)
+            {
+                ui++;
+            }
         }
         else if (up)
         {
             up = false;
-            const uint8_t step = (cursorPosition == 0) ? 100 : (cursorPosition == 1) ? 10
-                                                                                     : 1;
-            if (contrastValue < CONTRAST_MIN + step)
+            if (ui > CONTRAST_UI_MIN)
             {
-                contrastValue = CONTRAST_MIN; // keep the display readable
-            }
-            else
-            {
-                contrastValue = static_cast<uint8_t>(contrastValue - step);
+                ui--;
             }
         }
-        u8g2.setContrast(contrastValue);
-
-        const ButtonEvent event = readButton();
-
-        // short press moves the cursor position
-        if (event == BUTTON_SHORT)
+        const uint8_t raw = (ui == startUi) ? g_contrast : contrastUiToRaw(ui);
+        if (raw != applied)
         {
-            cursorPosition = (cursorPosition + 1) % 3;
+            u8g2.setContrast(raw);
+            applied = raw;
         }
 
-        // long press will save and exit
-        if (event == BUTTON_LONG)
+        // long press will save and exit; short press does nothing here
+        if (readButton() == BUTTON_LONG)
         {
-            g_contrast = contrastValue;
-            saveSettings();
+            if (raw != g_contrast)
+            {
+                g_contrast = raw;
+                saveSettings();
+            }
             break;
         }
     }
 }
 
 /**
- * @brief Adjusts the backlight brightness
+ * @brief Adjusts the backlight brightness (Settings > Set backlight)
  *
- * Rotating the encoder changes the level (1..10, clockwise = brighter) and previews it live.
- * A long press saves the level to EEPROM, switches the backlight on and exits.
+ * Rotating the encoder changes the level (0..10, 0 = off, clockwise = brighter) and previews
+ * it live. A long press saves the level to EEPROM, switches the backlight on and exits.
  */
 void setBacklightSubmenu()
 {
@@ -914,23 +969,19 @@ void setBacklightSubmenu()
     while (true)
     {
         g_previewLevel = level; // live preview, see updateBacklight()
+        g_previewActive = true;
         servicePage();
         readRotaryEncoder();
-        u8g2.clearBuffer();
-        u8g2.setFont(u8g2_font_6x10_tf);
-        u8g2.setDrawColor(1);
-        u8g2.setCursor(0, 10);
-        u8g2.print("Backlight:");
-        u8g2.setCursor(0, 30);
-        u8g2.print("[");
-        for (uint8_t i = 0; i < BACKLIGHT_MAX; i++)
+        char value[10];
+        if (level == 0)
         {
-            u8g2.print((i < level) ? "#" : " ");
+            snprintf(value, sizeof(value), "Off");
         }
-        u8g2.print("]");
-        u8g2.setCursor(0, 40);
-        u8g2.print(level * 10);
-        u8g2.print("%");
+        else
+        {
+            snprintf(value, sizeof(value), "Level %u", static_cast<unsigned>(level));
+        }
+        drawValuePage(u8g2, "Set backlight", value, level, BACKLIGHT_MAX, "Hold = save");
         sendBufferPolled();
 
         if (down)
@@ -959,65 +1010,43 @@ void setBacklightSubmenu()
             break;
         }
     }
-    g_previewLevel = 0;
+    g_previewActive = false;
     updateBacklight(true);
 }
 
 /**
- * @brief Displays the main menu
+ * @brief Draws the current menu (main menu or Settings...)
  *
- * Clears the display, sets the font to u8g2_font_6x10_tf, and draws the menu items
- * on the display. The currently selected item is highlighted with a white box.
+ * Title bar in reverse video, the items in 6x10 with the highlighted one in reverse video.
+ * The Settings list shows 4 rows and scrolls (arrows mark more items above/below). The main
+ * menu shows the set temperature and time underneath.
  */
 void displayMenu()
 {
-    // 4 rows fit on the 48 px display; scroll so the highlighted item stays visible
-    static uint8_t firstRow = 0;
-    if (g_currentMenu < firstRow)
-    {
-        firstRow = g_currentMenu;
-    }
-    else if (g_currentMenu >= firstRow + MENU_VISIBLE_ROWS)
-    {
-        firstRow = g_currentMenu - MENU_VISIBLE_ROWS + 1;
-    }
+    static const char *const mainItems[MAIN_ITEMS_COUNT] = {"Start", "Settings..."};
+    static const char *const settingsItems[SETTINGS_ITEMS_COUNT] = {
+        "Set temp", "Set time", "Set units", "Set backlight", "Set contrast", "Exit"};
+    static uint8_t mainFirstRow = 0;
+    static uint8_t settingsFirstRow = 0;
 
-    u8g2.clearBuffer();
-    u8g2.setFont(u8g2_font_6x10_tf);
-    for (uint8_t row = 0; row < MENU_VISIBLE_ROWS && (firstRow + row) < MENU_ITEMS_COUNT; row++)
+    if (g_menuLevel == MENU_SETTINGS)
     {
-        const uint8_t i = firstRow + row;
-        u8g2.setCursor(0, (row + 1) * 10);
-        if (i == g_currentMenu)
-        {
-            u8g2.setDrawColor(1);
-            u8g2.drawBox(0, row * 10, 84, 10);
-            u8g2.setDrawColor(0);
-        }
-        else
-        {
-            u8g2.setDrawColor(1);
-        }
-        switch (i)
-        {
-        case START_TIMER:
-            u8g2.print("Start Timer");
-            break;
-        case SET_TIMER:
-            u8g2.print("Set Timer");
-            break;
-        case SET_TEMP:
-            u8g2.print("Set Temp");
-            break;
-        case CONTRAST:
-            u8g2.print("Contrast");
-            break;
-        case BACKLIGHT:
-            u8g2.print("Backlight");
-            break;
-        }
+        drawMenuList(u8g2, "Settings", settingsItems, SETTINGS_ITEMS_COUNT, g_settingsItem, settingsFirstRow, nullptr);
+    }
+    else
+    {
+        char footer[20];
+        snprintf(footer, sizeof(footer), "%d%s  %u min", displayTemp(g_setTemperatureF, g_unitsC), unitSuffix(),
+                 static_cast<unsigned>(g_timerSetting));
+        drawMenuList(u8g2, "uSonicTimer", mainItems, MAIN_ITEMS_COUNT, g_currentMenu, mainFirstRow, footer);
     }
     sendBufferPolled();
+}
+
+/// " F" / " C" with the degree sign, for the current display unit
+const char *unitSuffix()
+{
+    return g_unitsC ? DEG_SIGN "C" : DEG_SIGN "F";
 }
 
 /**
@@ -1275,6 +1304,8 @@ void saveSettings()
     EEPROM.put(EEPROM_ADDR_TIMER, g_timerSetting);
     EEPROM.put(EEPROM_ADDR_CONTRAST, g_contrast);
     EEPROM.put(EEPROM_ADDR_BACKLIGHT, g_backlightLevel);
+    EEPROM.put(EEPROM_ADDR_UNITS, static_cast<uint8_t>(g_unitsC ? UNITS_C : UNITS_F));
+    EEPROM.put(EEPROM_ADDR_LAYOUT, static_cast<uint8_t>(EEPROM_LAYOUT_ID));
     EEPROM.commit();
 }
 /// @brief Load settings from EEPROM.  Apply defaults if not found
@@ -1287,6 +1318,12 @@ void loadSettings()
     EEPROM.get(EEPROM_ADDR_TIMER, g_timerSetting);
     EEPROM.get(EEPROM_ADDR_CONTRAST, g_contrast);
     EEPROM.get(EEPROM_ADDR_BACKLIGHT, g_backlightLevel);
+    uint8_t units = UNITS_F;
+    uint8_t layout = 0;
+    EEPROM.get(EEPROM_ADDR_UNITS, units);
+    EEPROM.get(EEPROM_ADDR_LAYOUT, layout);
+    // settings saved by 0.5.0 and earlier have no layout id; their values carry over as they are
+    const bool layoutKnown = (layout == EEPROM_LAYOUT_ID);
 
     // apply defaults to anything out of range, not just 0 (erased flash reads 0xFF)
     if (g_setTemperatureF < SET_TEMP_MIN_F || g_setTemperatureF > SET_TEMP_MAX_F)
@@ -1297,14 +1334,18 @@ void loadSettings()
     {
         g_timerSetting = 10;
     }
+    // contrast is still stored raw (80..200), so a 0.5.0 value carries over; the page shows 20..100
     if (g_contrast < CONTRAST_MIN || g_contrast > CONTRAST_MAX)
     {
         g_contrast = CONTRAST_DEFAULT;
     }
-    if (g_backlightLevel < BACKLIGHT_MIN || g_backlightLevel > BACKLIGHT_MAX)
+    // level 0 (off) is only valid once 0.6.0 has saved; before that a 0 is a blank/stray byte
+    if (g_backlightLevel > BACKLIGHT_MAX || (g_backlightLevel == 0 && !layoutKnown))
     {
         g_backlightLevel = BACKLIGHT_DEFAULT;
     }
+    // anything but UNITS_C (including a blank 0xFF byte) means F, the default
+    g_unitsC = layoutKnown && (units == UNITS_C);
     // u8g2.setContrast(g_contrast); // this is done in setup after calling loadSettings()
 
     debug("\texiting loadSettings()");
@@ -1326,6 +1367,12 @@ ButtonEvent readButton()
     b.read(); // consume the event
     noteActivity();
     return (b.wasPressedFor() > longPress) ? BUTTON_LONG : BUTTON_SHORT;
+}
+
+/// true when the backlight shows at all in normal operation (on, and level 1..10)
+bool backlightLit()
+{
+    return g_backlightOn && g_backlightLevel > 0;
 }
 
 void toggleBacklight()
@@ -1371,7 +1418,8 @@ void noteActivity()
  *
  * Non-blocking; call it often (loop() and servicePage()). Effects swing between the set
  * brightness and BL_LOW_PERCENT of it, so the screen stays readable. Timer finished and
- * sensor fault also show when the backlight is toggled off; heating/cleaning do not.
+ * sensor fault also show when the backlight is toggled off or set to level 0 (then at
+ * BL_OFF_STATUS_LEVEL); heating/cleaning do not.
  * Only call it from loop context: analogWrite() can yield, which is not allowed in the Ticker.
  */
 void updateBacklight(bool force)
@@ -1384,8 +1432,9 @@ void updateBacklight(bool force)
     }
     lastUpdate = now;
 
-    const uint8_t level = (g_previewLevel != 0) ? g_previewLevel : g_backlightLevel;
-    const uint8_t full = BACKLIGHT_LEVEL_DUTY[level - 1];
+    const uint8_t level = g_previewActive ? g_previewLevel : g_backlightLevel;
+    const bool lit = g_backlightOn && level > 0; // level 0 = off, like toggled off
+    const uint8_t full = BACKLIGHT_LEVEL_DUTY[((level > 0) ? level : BL_OFF_STATUS_LEVEL) - 1];
     uint8_t low = (full * BL_LOW_PERCENT) / 100;
     if (low < 1)
     {
@@ -1393,9 +1442,9 @@ void updateBacklight(bool force)
     }
     uint8_t duty;
 
-    if (g_previewLevel != 0)
+    if (g_previewActive)
     {
-        duty = full; // Backlight page: show the level being chosen
+        duty = (level > 0) ? full : 0; // Set backlight page: show the level being chosen
     }
     else
     {
@@ -1406,7 +1455,7 @@ void updateBacklight(bool force)
             // two short blinks every BL_BLINK_MS
             const uint16_t phase = now % BL_BLINK_MS;
             const bool blink = (phase < 150) || (phase >= 300 && phase < 450);
-            if (g_backlightOn)
+            if (lit)
             {
                 duty = blink ? low : full;
             }
@@ -1419,7 +1468,7 @@ void updateBacklight(bool force)
         case BL_DONE:
         {
             // slow triangle pulse between the low level (or off) and the set brightness
-            const uint8_t base = g_backlightOn ? low : 0;
+            const uint8_t base = lit ? low : 0;
             const uint16_t half = BL_PULSE_MS / 2;
             const uint16_t phase = now % BL_PULSE_MS;
             const uint16_t ramp = (phase < half) ? phase : (BL_PULSE_MS - phase);
@@ -1427,7 +1476,7 @@ void updateBacklight(bool force)
             break;
         }
         case BL_HEATING:
-            if (!g_backlightOn)
+            if (!lit)
             {
                 duty = 0;
             }
@@ -1437,7 +1486,7 @@ void updateBacklight(bool force)
             }
             break;
         default: // BL_IDLE, BL_CLEANING
-            if (!g_backlightOn)
+            if (!lit)
             {
                 duty = 0;
             }
