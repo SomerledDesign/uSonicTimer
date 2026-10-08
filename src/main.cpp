@@ -239,6 +239,15 @@ static_assert(EEPROM_ADDR_SET_TEMP + sizeof(uint8_t) <= EEPROM_ADDR_TIMER, "EEPR
 static_assert(EEPROM_ADDR_TIMER + sizeof(uint8_t) <= EEPROM_ADDR_CONTRAST, "EEPROM: timer overlaps contrast");
 static_assert(EEPROM_ADDR_CONTRAST + sizeof(uint8_t) <= EEPROM_SIZE, "EEPROM: contrast outside EEPROM");
 
+// Valid setting ranges (erased flash reads 0xFF and a bare module may hold leftover bytes)
+#define SET_TEMP_MIN_F    60
+#define SET_TEMP_MAX_F    180
+#define TIMER_MIN_MINUTES 1
+#define TIMER_MAX_MINUTES 60
+#define CONTRAST_MIN      80  // U8g2 sends contrast >> 1 as the PCD8544 Vop
+#define CONTRAST_MAX      200
+#define CONTRAST_DEFAULT  128 // = Vop 0x40, the U8g2 init value
+
 // Button events (Button2 keeps wasPressed() set until read(), so every event must be consumed)
 enum ButtonEvent
 {
@@ -275,6 +284,7 @@ void displayMenu();
 void saveSettings();
 void loadSettings();
 void handleLoop();
+void servicePage();
 void readRotaryEncoder();
 void turnOnHeater();
 void turnOffHeater();
@@ -301,6 +311,7 @@ void setup()
     // Initialize display
     ///////////////////////////////////////////////////////////////
     u8g2.begin();
+    u8g2.setFontMode(1); // transparent glyphs: inverse (colour 0) text only clears the strokes
     u8g2.setContrast(g_contrast);
 
     // Initialize temperature sensor
@@ -437,7 +448,7 @@ void startTimerPage()
     unsigned long startTime = millis();
     while (true)
     {
-        handleLoop();
+        servicePage();
         unsigned long currentTime = millis();
         int32_t remainingTime = static_cast<int32_t>(g_timerSetting) * 60 -
                                 static_cast<int32_t>((currentTime - startTime) / 1000);
@@ -451,8 +462,16 @@ void startTimerPage()
 
         sensors.requestTemperatures();
         currentTemperature = sensors.getTempFByIndex(0);
+        // no sensor (DEVICE_DISCONNECTED_F = -196.6F) must never leave the heater on
+        const bool sensorOk = currentTemperature > (DEVICE_DISCONNECTED_F + 1.0f);
 
-        if (currentTemperature < (g_setTemperatureF - tempOffset))
+        if (!sensorOk)
+        {
+            // fail-safe: heater off, cleaner still runs for the timer (cleaning without temp control)
+            turnOffHeater();
+            turnOnCleaner();
+        }
+        else if (currentTemperature < (g_setTemperatureF - tempOffset))
         {
             turnOnHeater();
             turnOffCleaner();
@@ -465,8 +484,10 @@ void startTimerPage()
 
         u8g2.clearBuffer();
         u8g2.setFont(u8g2_font_6x10_tf);
+        // 84 px / 6 px font = 14 characters per line
         u8g2.setCursor(0, 10);
-        u8g2.print("Time Left: ");
+        u8g2.print("Time Left:");
+        u8g2.setCursor(0, 20);
         u8g2.print(remainingTime / 60);
         u8g2.print(":");
         if ((remainingTime % 60) < 10)
@@ -475,9 +496,18 @@ void startTimerPage()
         }
         u8g2.print(remainingTime % 60);
         u8g2.setCursor(0, 30);
-        u8g2.print("Temp: ");
-        u8g2.print(currentTemperature);
-        u8g2.print("F / ");
+        if (sensorOk)
+        {
+            u8g2.print("Now: ");
+            u8g2.print(currentTemperature, 1);
+            u8g2.print("F");
+        }
+        else
+        {
+            u8g2.print("Temp: --");
+        }
+        u8g2.setCursor(0, 40);
+        u8g2.print("Set: ");
         u8g2.print(g_setTemperatureF);
         u8g2.print("F");
         u8g2.sendBuffer();
@@ -515,12 +545,13 @@ void setTimerSubmenu()
     }
     while (true)
     {
-        handleLoop();
+        servicePage();
         readRotaryEncoder();
         u8g2.clearBuffer();
         u8g2.setFont(u8g2_font_6x10_tf);
         u8g2.setCursor(0, 10);
-        u8g2.print("Set Timer: ");
+        u8g2.print("Set Timer:");
+        u8g2.setCursor(0, 22);
         u8g2.print(presets[selectedIndex]);
         u8g2.print(" min");
         u8g2.sendBuffer();
@@ -585,22 +616,29 @@ void setTemperatureSubmenu()
 
     while (true)
     {
-        handleLoop();
+        servicePage();
         readRotaryEncoder();
         u8g2.clearBuffer();
         u8g2.setFont(u8g2_font_6x10_tf);
+        u8g2.setDrawColor(1);
         u8g2.setCursor(0, 10);
-        u8g2.print("Set Temp: ");
+        u8g2.print("Set Temp:");
+
+        // same layout as Contrast: digits on line 3, cursor digit in reverse video
+        const uint8_t baseX = 0;
+        const uint8_t baseY = 30;
         for (uint8_t i = 0; i < 3; i++)
         {
             if (i == cursorPosition)
             {
-                u8g2.setDrawColor(1);
-                u8g2.drawBox((i + 1) * 10, 10, 10, 10);
+                u8g2.drawBox(baseX + (i * 10), baseY - 8, 10, 10);
                 u8g2.setDrawColor(0);
             }
+            u8g2.setCursor(baseX + (i * 10) + 2, baseY); // +2 centres the 6 px glyph in the 10 px box
             u8g2.print(digits[i]);
+            u8g2.setDrawColor(1); // always restore the draw colour
         }
+        u8g2.setCursor(baseX + 32, baseY);
         u8g2.print("F");
         u8g2.sendBuffer();
 
@@ -626,7 +664,8 @@ void setTemperatureSubmenu()
         // long press will save and exit
         if (event == BUTTON_LONG)
         {
-            g_setTemperatureF = digits[0] * 100 + digits[1] * 10 + digits[2];
+            const uint16_t newTemp = digits[0] * 100 + digits[1] * 10 + digits[2];
+            g_setTemperatureF = static_cast<uint8_t>(constrain(newTemp, SET_TEMP_MIN_F, SET_TEMP_MAX_F));
             saveSettings();
             break;
         }
@@ -646,7 +685,7 @@ void adjustContrast()
     uint8_t contrastValue = g_contrast;
     while (true)
     {
-        handleLoop();
+        servicePage();
         readRotaryEncoder();
         u8g2.clearBuffer();
         u8g2.setFont(u8g2_font_6x10_tf);
@@ -668,7 +707,7 @@ void adjustContrast()
                 u8g2.drawBox(baseX + (i * 10), baseY - 8, 10, 10);
                 u8g2.setDrawColor(0);
             }
-            u8g2.setCursor(baseX + (i * 10), baseY);
+            u8g2.setCursor(baseX + (i * 10) + 2, baseY); // +2 centres the 6 px glyph in the 10 px box
             u8g2.print(digits[i]);
             u8g2.setDrawColor(1);
         }
@@ -680,16 +719,16 @@ void adjustContrast()
             up = false;
             const uint8_t step = (cursorPosition == 0) ? 100 : (cursorPosition == 1) ? 10
                                                                                      : 1;
-            contrastValue = static_cast<uint8_t>(min(contrastValue + step, 255));
+            contrastValue = static_cast<uint8_t>(min(contrastValue + step, CONTRAST_MAX));
         }
         else if (down)
         {
             down = false;
             const uint8_t step = (cursorPosition == 0) ? 100 : (cursorPosition == 1) ? 10
                                                                                      : 1;
-            if (contrastValue < step)
+            if (contrastValue < CONTRAST_MIN + step)
             {
-                contrastValue = 0;
+                contrastValue = CONTRAST_MIN; // keep the display readable
             }
             else
             {
@@ -767,6 +806,19 @@ void handleLoop()
 {
     r.loop();
     b.loop();
+}
+
+/**
+ * @brief Services the encoder/button and lets the ESP8266 core run.
+ *
+ * Call this in every blocking page loop (while (true)). The yield() feeds the soft
+ * watchdog (otherwise it resets the board after ~3 s) and lets the 10ms Ticker fire.
+ * Never call it from the Ticker callback: yield() is not allowed in SYS context.
+ */
+void servicePage()
+{
+    handleLoop();
+    yield();
 }
 
 void readRotaryEncoder()
@@ -847,17 +899,18 @@ void loadSettings()
     EEPROM.get(EEPROM_ADDR_TIMER, g_timerSetting);
     EEPROM.get(EEPROM_ADDR_CONTRAST, g_contrast);
 
-    if (g_setTemperatureF == 0)
+    // apply defaults to anything out of range, not just 0 (erased flash reads 0xFF)
+    if (g_setTemperatureF < SET_TEMP_MIN_F || g_setTemperatureF > SET_TEMP_MAX_F)
     {
         g_setTemperatureF = 72;
     }
-    if (g_timerSetting == 0)
+    if (g_timerSetting < TIMER_MIN_MINUTES || g_timerSetting > TIMER_MAX_MINUTES)
     {
         g_timerSetting = 10;
     }
-    if (g_contrast == 0)
+    if (g_contrast < CONTRAST_MIN || g_contrast > CONTRAST_MAX)
     {
-        g_contrast = 64;
+        g_contrast = CONTRAST_DEFAULT;
     }
     // u8g2.setContrast(g_contrast); // this is done in setup after calling loadSettings()
 
