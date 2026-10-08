@@ -285,6 +285,7 @@ void saveSettings();
 void loadSettings();
 void handleLoop();
 void servicePage();
+void sendBufferPolled();
 void readRotaryEncoder();
 void turnOnHeater();
 void turnOffHeater();
@@ -321,6 +322,9 @@ void setup()
     // Initialize rotary encoder
     ///////////////////////////////////////////////////////////////
     r.begin(ROTARY_PIN1, ROTARY_PIN2, CLICKS_PER_STEP);
+    // GPIO16 has no internal pull-up (R9 4K7 is external) and the core's pinMode(16, INPUT_PULLUP)
+    // leaves the GPIO16 output enable untouched; INPUT explicitly makes it an input
+    pinMode(ROTARY_PIN1, INPUT);
     last = r.getPosition();
     // encoder.setChangedHandler(rotate);
     // encoder.setLeftRotationHandler(rotate);
@@ -370,6 +374,8 @@ void loop()
 {
 
     debugln("Entering loop()...");
+
+    handleLoop(); // poll the encoder/button every pass, not only from the 10ms Ticker
 
     displayMenu();
 
@@ -510,7 +516,7 @@ void startTimerPage()
         u8g2.print("Set: ");
         u8g2.print(g_setTemperatureF);
         u8g2.print("F");
-        u8g2.sendBuffer();
+        sendBufferPolled();
 
         // long press aborts the timer
         if (readButton() == BUTTON_LONG)
@@ -520,6 +526,7 @@ void startTimerPage()
     }
     turnOffCleaner();
     turnOffHeater();
+    last = r.getPosition(); // ignore any turning done while the timer page was shown
 }
 
 /**
@@ -554,7 +561,7 @@ void setTimerSubmenu()
         u8g2.setCursor(0, 22);
         u8g2.print(presets[selectedIndex]);
         u8g2.print(" min");
-        u8g2.sendBuffer();
+        sendBufferPolled();
 
         if (down)
         {
@@ -640,7 +647,7 @@ void setTemperatureSubmenu()
         }
         u8g2.setCursor(baseX + 32, baseY);
         u8g2.print("F");
-        u8g2.sendBuffer();
+        sendBufferPolled();
 
         if (down)
         {
@@ -712,7 +719,7 @@ void adjustContrast()
             u8g2.setDrawColor(1);
         }
 
-        u8g2.sendBuffer();
+        sendBufferPolled();
 
         if (up)
         {
@@ -794,7 +801,7 @@ void displayMenu()
             break;
         }
     }
-    u8g2.sendBuffer();
+    sendBufferPolled();
 }
 
 /**
@@ -821,18 +828,42 @@ void servicePage()
     yield();
 }
 
+/**
+ * @brief Sends the frame buffer to the LCD in small pieces, polling the encoder/button in between.
+ *
+ * A full software-SPI sendBuffer() blocks for roughly 14ms. The Ticker cannot run during it,
+ * so the encoder was only sampled about once per redraw and a detent that snapped through all
+ * four transitions between two samples was never seen. Sending 18 pieces of 4x1 tiles keeps
+ * the gap between encoder samples under ~1ms. Safe in any context (no yield()).
+ */
+void sendBufferPolled()
+{
+    const uint8_t tilesWide = u8g2.getBufferTileWidth();  // 11 tiles (88 px, 84 visible)
+    const uint8_t tilesHigh = u8g2.getBufferTileHeight(); // 6 tiles (48 px)
+    for (uint8_t ty = 0; ty < tilesHigh; ty++)
+    {
+        for (uint8_t tx = 0; tx < tilesWide; tx += 4)
+        {
+            const uint8_t tw = (tilesWide - tx < 4) ? (tilesWide - tx) : 4;
+            u8g2.updateDisplayArea(tx, ty, tw, 1);
+            handleLoop();
+        }
+    }
+}
+
 void readRotaryEncoder()
 {
     int16_t position = r.getPosition();
 
+    // consume one detent per call so steps that arrive during a redraw are not dropped
     if (position > last)
     {
-        last = position;
+        last++;
         down = true;
     }
     else if (position < last)
     {
-        last = position;
+        last--;
         up = true;
     }
 }
