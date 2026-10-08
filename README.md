@@ -120,6 +120,19 @@ pio device monitor -b 115200        # serial monitor (debug output)
   `$HOME/Library/Caches/PlatformIO/uSonicTimer/`, which keeps build output out of Dropbox. On a
   non-macOS machine, change these paths or remove them to use the default `.pio/` folder.
 
+## Versioning
+
+Firmware versions are a semantic version plus a build number, shown as **`0.5.0 (71)`** (current).
+
+- Bump PATCH for fixes and MINOR for features; 1.0.0 is the first version installed and in service.
+- The build number goes up by 1 for every build flashed for testing and never resets.
+- `FW_VERSION`, `FW_BUILD` and `HW_REV` at the top of `src/main.cpp` set it. The startup screen
+  shows `uSonicTimer` / `v0.5.0 (71)` / `PCB Rev D` for 1.5 s at power-up. Releases are tagged
+  `vMAJOR.MINOR.PATCH` in git.
+
+Earlier builds: build 69 = `44c0249`, build 70 = `a255348` (backlight status/Backlight menu and the
+polled encoder decoder).
+
 ## Setup and usage
 
 1. Wire the board as in the pin map, or use the rev 1d PCB. Put the DS18B20 on the bowl and

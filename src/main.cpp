@@ -3,7 +3,7 @@
  * @remarks uSonicTimer
  * @author Kevin Murphy (https://www.SomerledDesign.com)
  * @brief an addition to an old, inexpensive Ultrasonic cleaner to include heating and timing
- * @version 0.4
+ * @version 0.5.0 (71)
  * @date 08/28/24
  *
  * @copyright Copyright (c) 2024 Somerled Design, LLC in Kevin Murphy
@@ -44,7 +44,12 @@
  *   damage/harm to you, others or property then you are on your own. This work is experimental.
  *
  */
-// Build 70 — Rev D (PCB rev 1d)
+// Firmware version, shown as "0.5.0 (71)": semantic version MAJOR.MINOR.PATCH plus a build number.
+// Bump PATCH for fixes, MINOR for features; 1.0.0 once it is installed and in service.
+// FW_BUILD goes up by 1 for every build flashed for testing and never resets.
+#define FW_VERSION "0.5.0"
+#define FW_BUILD 71
+#define HW_REV "D" // PCB rev 1d
 /**
  *  Physical pins listed for comparison to pcb.
  *  in version 1b pcb 2/2023 the CS is connected to ground
@@ -192,6 +197,18 @@
 // 4 = full-cycle encoder (one rest state, e.g. always 11). A = B in every detent on the
 // Rev D board; the encoder test screen (hold the button at power-up) shows which one it is.
 #define ENCODER_STEPS_PER_DETENT 2
+
+// Startup screen
+#define FW_STR_(x) #x
+#define FW_STR(x) FW_STR_(x)
+#define STARTUP_LINE1 "uSonicTimer"
+#define STARTUP_LINE2 "v" FW_VERSION " (" FW_STR(FW_BUILD) ")"
+#define STARTUP_LINE3 "PCB Rev " HW_REV
+#define STARTUP_SCREEN_MS 1500
+// 84 px / 6 px font = 14 characters per line
+static_assert(sizeof(STARTUP_LINE1) - 1 <= 14, "startup line 1 too long");
+static_assert(sizeof(STARTUP_LINE2) - 1 <= 14, "startup line 2 too long");
+static_assert(sizeof(STARTUP_LINE3) - 1 <= 14, "startup line 3 too long");
 // -------------------------------------------------------------------------
 //  NOKIA 5110 LCD
 // #define sclk_pin D5
@@ -338,6 +355,7 @@ void handleLoop();
 void buttonTick();
 void pollEncoder();
 void encoderTestPage();
+void showStartupScreen();
 void servicePage();
 void sendBufferPolled();
 void readRotaryEncoder();
@@ -417,15 +435,26 @@ void setup()
     digitalWrite(HEATER_PIN, LOW);
     digitalWrite(CLEANER_PIN, LOW);
 
-    // Read initial temperature
+    // startup screen (name, version, board revision) for STARTUP_SCREEN_MS
+    const bool testHeld = (digitalRead(ROTARY_BUTTON) == LOW); // checked before the startup screen
+    const unsigned long startupMs = millis();
+    showStartupScreen();
+
+    // Read initial temperature (while the startup screen is shown)
     sensors.requestTemperatures();
     currentTemperature = sensors.getTempFByIndex(0); // TODO: get address of sensor and use that instead
 
+    while (millis() - startupMs < STARTUP_SCREEN_MS)
+    {
+        servicePage(); // keeps the watchdog fed
+    }
+
     // hold the encoder button during power-up/reset for the encoder test screen
-    if (digitalRead(ROTARY_BUTTON) == LOW)
+    if (testHeld || digitalRead(ROTARY_BUTTON) == LOW)
     {
         encoderTestPage();
     }
+    last = g_encPosition; // ignore any turning during the startup screen
 
     // TODO: setup wifi 
     // this is a no-op for now, but could be implented in the future to allow for OTA updates, remote monitoring, etc.
@@ -1117,6 +1146,26 @@ void readRotaryEncoder()
         up = true;
         noteActivity();
     }
+}
+
+/**
+ * @brief Startup screen: name, firmware version (build) and PCB revision.
+ *
+ * Only draws; setup() keeps it up for STARTUP_SCREEN_MS while servicing the encoder/button.
+ */
+void showStartupScreen()
+{
+    // centre each line on the 84 px display
+    static const char *const lines[] = {STARTUP_LINE1, STARTUP_LINE2, STARTUP_LINE3};
+    u8g2.clearBuffer();
+    u8g2.setFont(u8g2_font_6x10_tf);
+    u8g2.setDrawColor(1);
+    for (uint8_t i = 0; i < 3; i++)
+    {
+        const int16_t x = (84 - u8g2.getStrWidth(lines[i])) / 2;
+        u8g2.drawStr(x < 0 ? 0 : x, 12 + (i * 14), lines[i]);
+    }
+    sendBufferPolled();
 }
 
 /**
