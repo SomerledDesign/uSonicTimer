@@ -177,11 +177,14 @@
 #define LCD_CS_PIN D4      // GPIO2 (10K pull-up)
 #define LCD_RST_PIN U8X8_PIN_NONE
 // Status LED
-// TODO: maybe use the backlight as a Status?  Pulsing, Flashing, Steady, Dim?
-// Pulsing = ?
-// Flashing = Heating up
-// Steady = normal operation
-// #define STATUS_LED_PIN ?
+// The backlight (PWM on GPIO15) is used as the status indicator, see updateBacklight():
+// Steady       = normal operation (menu idle, cleaning) at the Backlight menu brightness
+// Flashing     = Heating up (1 Hz between the set brightness and ~30% of it)
+// Pulsing      = timer finished, until any input (shows even if the backlight is toggled off)
+// Double-blink = no temp sensor during a run, heater locked off (shows even if toggled off)
+// Dim          = ~20% after 5 minutes idle in the menu; the first input only wakes it
+// Heating/cleaning stay dark when the backlight has been toggled off.
+// #define STATUS_LED_PIN ?   (not needed: the backlight is the status LED)
 // bool statusLedOn = false;
 
 #define CLICKS_PER_STEP 4
@@ -228,6 +231,8 @@ uint8_t tempOffset = 10;     // Offset in Fahrenheit for heater control
 uint8_t g_contrast;          // The contrast for the display
 uint16_t longPress = 1000;   // one second long press of button
 bool g_backlightOn = true;   // backlight state; toggled by a short press on the main menu
+uint8_t g_backlightLevel;    // backlight brightness level 1..10 (Backlight menu)
+uint8_t g_previewLevel = 0;  // non-zero while the Backlight page previews a level
 
 // EEPROM layout (one byte per setting; addresses kept from earlier firmware so saved
 // temperature/timer/contrast values survive the update)
@@ -235,9 +240,11 @@ bool g_backlightOn = true;   // backlight state; toggled by a short press on the
 #define EEPROM_ADDR_SET_TEMP  0x00 // uint8_t g_setTemperatureF
 #define EEPROM_ADDR_TIMER     0x08 // uint8_t g_timerSetting
 #define EEPROM_ADDR_CONTRAST  0x10 // uint8_t g_contrast
+#define EEPROM_ADDR_BACKLIGHT 0x18 // uint8_t g_backlightLevel
 static_assert(EEPROM_ADDR_SET_TEMP + sizeof(uint8_t) <= EEPROM_ADDR_TIMER, "EEPROM: set temp overlaps timer");
 static_assert(EEPROM_ADDR_TIMER + sizeof(uint8_t) <= EEPROM_ADDR_CONTRAST, "EEPROM: timer overlaps contrast");
-static_assert(EEPROM_ADDR_CONTRAST + sizeof(uint8_t) <= EEPROM_SIZE, "EEPROM: contrast outside EEPROM");
+static_assert(EEPROM_ADDR_CONTRAST + sizeof(uint8_t) <= EEPROM_ADDR_BACKLIGHT, "EEPROM: contrast overlaps backlight");
+static_assert(EEPROM_ADDR_BACKLIGHT + sizeof(uint8_t) <= EEPROM_SIZE, "EEPROM: backlight outside EEPROM");
 
 // Valid setting ranges (erased flash reads 0xFF and a bare module may hold leftover bytes)
 #define SET_TEMP_MIN_F    60
@@ -247,6 +254,36 @@ static_assert(EEPROM_ADDR_CONTRAST + sizeof(uint8_t) <= EEPROM_SIZE, "EEPROM: co
 #define CONTRAST_MIN      80  // U8g2 sends contrast >> 1 as the PCD8544 Vop
 #define CONTRAST_MAX      200
 #define CONTRAST_DEFAULT  128 // = Vop 0x40, the U8g2 init value
+#define BACKLIGHT_MIN     1   // level 0 is not offered, so a saved level can't leave the screen dark
+#define BACKLIGHT_MAX     10
+#define BACKLIGHT_DEFAULT 10  // = fully on, as before
+
+// Backlight PWM and status effects
+#define BACKLIGHT_PWM_FREQ   1000 // Hz; flicker-free, no whine, light interrupt load (timer1)
+#define BL_LOW_PERCENT       30   // flash/pulse/blink low level, % of the set brightness
+#define BL_DIM_PERCENT       20   // idle dim level, % of the set brightness
+#define BL_UPDATE_MS         15   // status effect update interval
+#define BL_FLASH_MS          1000 // heating flash period
+#define BL_PULSE_MS          2500 // timer finished pulse period
+#define BL_BLINK_MS          2000 // sensor fault double-blink period
+#define IDLE_DIM_MS          (5UL * 60UL * 1000UL) // dim after 5 minutes idle in the menu
+#define TEMP_CONVERSION_MS   800  // DS18B20 12-bit conversion takes 750ms
+
+// PWM duty (0-255) for levels 1..10; roughly perceptual (the eye is far more sensitive at the low end)
+static const uint8_t BACKLIGHT_LEVEL_DUTY[BACKLIGHT_MAX] = {4, 8, 14, 24, 38, 56, 80, 110, 160, 255};
+
+// What the backlight is currently showing
+enum BacklightStatus
+{
+    BL_IDLE,     // steady (or dimmed after inactivity)
+    BL_HEATING,  // flashing
+    BL_CLEANING, // steady
+    BL_DONE,     // pulsing until any input
+    BL_FAULT     // double-blink: no temp sensor during a run
+};
+BacklightStatus g_blStatus = BL_IDLE;
+unsigned long g_lastActivityMs = 0; // last encoder/button input
+bool g_dimmed = false;              // idle dim active (main menu only)
 
 // Button events (Button2 keeps wasPressed() set until read(), so every event must be consumed)
 enum ButtonEvent
@@ -271,8 +308,10 @@ enum MenuItems
     SET_TIMER,
     SET_TEMP,
     CONTRAST,
+    BACKLIGHT,
     MENU_ITEMS_COUNT
 };
+#define MENU_VISIBLE_ROWS 4 // 48 px / 10 px rows; the main menu scrolls to keep the highlight visible
 uint8_t g_currentMenu = START_TIMER;
 
 // Function definitions
@@ -280,6 +319,7 @@ void startTimerPage();
 void setTimerSubmenu();
 void setTemperatureSubmenu();
 void adjustContrast();
+void setBacklightSubmenu();
 void displayMenu();
 void saveSettings();
 void loadSettings();
@@ -294,6 +334,9 @@ void turnOffCleaner();
 void turnOnBacklight();
 void turnOffBacklight();
 void toggleBacklight();
+void updateBacklight(bool force = false);
+void setBacklightDuty(uint8_t duty);
+void noteActivity();
 ButtonEvent readButton();
 
 void setup()
@@ -349,8 +392,11 @@ void setup()
     // Initialize pins
     ///////////////////////////////////////////////////////////////
 
-    pinMode(BACKLIGHT_PIN, OUTPUT);
-    turnOnBacklight(); // backlight starts on; a short press on the main menu toggles it
+    pinMode(BACKLIGHT_PIN, OUTPUT); // GPIO15 is held LOW by its pull-down until here (boot strap)
+    analogWriteRange(255);
+    analogWriteFreq(BACKLIGHT_PWM_FREQ);
+    turnOnBacklight(); // backlight starts on at the saved level; a short press on the main menu toggles it
+    g_lastActivityMs = millis();
     pinMode(HEATER_PIN, OUTPUT);
     pinMode(CLEANER_PIN, OUTPUT);
     digitalWrite(HEATER_PIN, LOW);
@@ -376,14 +422,34 @@ void loop()
     debugln("Entering loop()...");
 
     handleLoop(); // poll the encoder/button every pass, not only from the 10ms Ticker
+    updateBacklight();
 
     displayMenu();
 
     // debug("displayMenu complete...");
 
     readRotaryEncoder();
+    const ButtonEvent event = readButton();
 
     // debug("rotaryEncoder has been read...");
+
+    // idle dim: the first input after dimming only wakes the backlight
+    if (g_dimmed)
+    {
+        if (down || up || event != BUTTON_NONE)
+        {
+            down = false;
+            up = false;
+            last = r.getPosition(); // drop any further detents of the waking turn
+            g_dimmed = false;
+            updateBacklight(true);
+        }
+        return;
+    }
+    if (g_backlightOn && g_blStatus == BL_IDLE && (millis() - g_lastActivityMs) >= IDLE_DIM_MS)
+    {
+        g_dimmed = true;
+    }
 
     // handle encoder events on various menuItems
     ////////////////////////////////////////////
@@ -405,7 +471,6 @@ void loop()
     // handle button events on various menuItems
     ////////////////////////////////////////////
 
-    const ButtonEvent event = readButton();
     if (event != BUTTON_NONE)
     {
         if (event == BUTTON_LONG)
@@ -424,6 +489,9 @@ void loop()
                 break;
             case CONTRAST:
                 adjustContrast();
+                break;
+            case BACKLIGHT:
+                setBacklightSubmenu();
                 break;
             default:
                 // do nothing (how did we get here?)
@@ -452,6 +520,16 @@ void loop()
 void startTimerPage()
 {
     unsigned long startTime = millis();
+    bool finished = false;
+
+    // one blocking read so the first heater decision uses a fresh temperature, then non-blocking
+    // conversions so the page (encoder, button, backlight status) keeps running during the 750ms
+    sensors.requestTemperatures();
+    currentTemperature = sensors.getTempFByIndex(0);
+    sensors.setWaitForConversion(false);
+    sensors.requestTemperatures();
+    unsigned long lastRequest = millis();
+
     while (true)
     {
         servicePage();
@@ -463,11 +541,16 @@ void startTimerPage()
         {
             turnOffCleaner();
             turnOffHeater();
+            finished = true;
             break;
         }
 
-        sensors.requestTemperatures();
-        currentTemperature = sensors.getTempFByIndex(0);
+        if (millis() - lastRequest >= TEMP_CONVERSION_MS)
+        {
+            currentTemperature = sensors.getTempFByIndex(0);
+            sensors.requestTemperatures();
+            lastRequest = millis();
+        }
         // no sensor (DEVICE_DISCONNECTED_F = -196.6F) must never leave the heater on
         const bool sensorOk = currentTemperature > (DEVICE_DISCONNECTED_F + 1.0f);
 
@@ -476,16 +559,19 @@ void startTimerPage()
             // fail-safe: heater off, cleaner still runs for the timer (cleaning without temp control)
             turnOffHeater();
             turnOnCleaner();
+            g_blStatus = BL_FAULT;
         }
         else if (currentTemperature < (g_setTemperatureF - tempOffset))
         {
             turnOnHeater();
             turnOffCleaner();
+            g_blStatus = BL_HEATING;
         }
         else
         {
             turnOffHeater();
             turnOnCleaner();
+            g_blStatus = BL_CLEANING;
         }
 
         u8g2.clearBuffer();
@@ -524,8 +610,11 @@ void startTimerPage()
             break;
         }
     }
+    sensors.setWaitForConversion(true);
     turnOffCleaner();
     turnOffHeater();
+    g_blStatus = finished ? BL_DONE : BL_IDLE; // pulse until any input when the timer ran out
+    g_lastActivityMs = millis();
     last = r.getPosition(); // ignore any turning done while the timer page was shown
 }
 
@@ -721,16 +810,17 @@ void adjustContrast()
 
         sendBufferPolled();
 
-        if (up)
+        // clockwise (down) = increase, same as the other pages
+        if (down)
         {
-            up = false;
+            down = false;
             const uint8_t step = (cursorPosition == 0) ? 100 : (cursorPosition == 1) ? 10
                                                                                      : 1;
             contrastValue = static_cast<uint8_t>(min(contrastValue + step, CONTRAST_MAX));
         }
-        else if (down)
+        else if (up)
         {
-            down = false;
+            up = false;
             const uint8_t step = (cursorPosition == 0) ? 100 : (cursorPosition == 1) ? 10
                                                                                      : 1;
             if (contrastValue < CONTRAST_MIN + step)
@@ -763,6 +853,67 @@ void adjustContrast()
 }
 
 /**
+ * @brief Adjusts the backlight brightness
+ *
+ * Rotating the encoder changes the level (1..10, clockwise = brighter) and previews it live.
+ * A long press saves the level to EEPROM, switches the backlight on and exits.
+ */
+void setBacklightSubmenu()
+{
+    uint8_t level = g_backlightLevel;
+    while (true)
+    {
+        g_previewLevel = level; // live preview, see updateBacklight()
+        servicePage();
+        readRotaryEncoder();
+        u8g2.clearBuffer();
+        u8g2.setFont(u8g2_font_6x10_tf);
+        u8g2.setDrawColor(1);
+        u8g2.setCursor(0, 10);
+        u8g2.print("Backlight:");
+        u8g2.setCursor(0, 30);
+        u8g2.print("[");
+        for (uint8_t i = 0; i < BACKLIGHT_MAX; i++)
+        {
+            u8g2.print((i < level) ? "#" : " ");
+        }
+        u8g2.print("]");
+        u8g2.setCursor(0, 40);
+        u8g2.print(level * 10);
+        u8g2.print("%");
+        sendBufferPolled();
+
+        if (down)
+        {
+            down = false;
+            if (level < BACKLIGHT_MAX)
+            {
+                level++;
+            }
+        }
+        else if (up)
+        {
+            up = false;
+            if (level > BACKLIGHT_MIN)
+            {
+                level--;
+            }
+        }
+
+        // long press will save and exit; short press does nothing here
+        if (readButton() == BUTTON_LONG)
+        {
+            g_backlightLevel = level;
+            saveSettings();
+            g_backlightOn = true;
+            break;
+        }
+    }
+    g_previewLevel = 0;
+    updateBacklight(true);
+}
+
+/**
  * @brief Displays the main menu
  *
  * Clears the display, sets the font to u8g2_font_6x10_tf, and draws the menu items
@@ -770,15 +921,27 @@ void adjustContrast()
  */
 void displayMenu()
 {
+    // 4 rows fit on the 48 px display; scroll so the highlighted item stays visible
+    static uint8_t firstRow = 0;
+    if (g_currentMenu < firstRow)
+    {
+        firstRow = g_currentMenu;
+    }
+    else if (g_currentMenu >= firstRow + MENU_VISIBLE_ROWS)
+    {
+        firstRow = g_currentMenu - MENU_VISIBLE_ROWS + 1;
+    }
+
     u8g2.clearBuffer();
     u8g2.setFont(u8g2_font_6x10_tf);
-    for (uint8_t i = 0; i < MENU_ITEMS_COUNT; i++)
+    for (uint8_t row = 0; row < MENU_VISIBLE_ROWS && (firstRow + row) < MENU_ITEMS_COUNT; row++)
     {
-        u8g2.setCursor(0, (i + 1) * 10);
+        const uint8_t i = firstRow + row;
+        u8g2.setCursor(0, (row + 1) * 10);
         if (i == g_currentMenu)
         {
             u8g2.setDrawColor(1);
-            u8g2.drawBox(0, i * 10, 84, 10);
+            u8g2.drawBox(0, row * 10, 84, 10);
             u8g2.setDrawColor(0);
         }
         else
@@ -798,6 +961,9 @@ void displayMenu()
             break;
         case CONTRAST:
             u8g2.print("Contrast");
+            break;
+        case BACKLIGHT:
+            u8g2.print("Backlight");
             break;
         }
     }
@@ -825,6 +991,7 @@ void handleLoop()
 void servicePage()
 {
     handleLoop();
+    updateBacklight();
     yield();
 }
 
@@ -860,11 +1027,13 @@ void readRotaryEncoder()
     {
         last++;
         down = true;
+        noteActivity();
     }
     else if (position < last)
     {
         last--;
         up = true;
+        noteActivity();
     }
 }
 
@@ -918,6 +1087,7 @@ void saveSettings()
     EEPROM.put(EEPROM_ADDR_SET_TEMP, g_setTemperatureF);
     EEPROM.put(EEPROM_ADDR_TIMER, g_timerSetting);
     EEPROM.put(EEPROM_ADDR_CONTRAST, g_contrast);
+    EEPROM.put(EEPROM_ADDR_BACKLIGHT, g_backlightLevel);
     EEPROM.commit();
 }
 /// @brief Load settings from EEPROM.  Apply defaults if not found
@@ -929,6 +1099,7 @@ void loadSettings()
     EEPROM.get(EEPROM_ADDR_SET_TEMP, g_setTemperatureF);
     EEPROM.get(EEPROM_ADDR_TIMER, g_timerSetting);
     EEPROM.get(EEPROM_ADDR_CONTRAST, g_contrast);
+    EEPROM.get(EEPROM_ADDR_BACKLIGHT, g_backlightLevel);
 
     // apply defaults to anything out of range, not just 0 (erased flash reads 0xFF)
     if (g_setTemperatureF < SET_TEMP_MIN_F || g_setTemperatureF > SET_TEMP_MAX_F)
@@ -942,6 +1113,10 @@ void loadSettings()
     if (g_contrast < CONTRAST_MIN || g_contrast > CONTRAST_MAX)
     {
         g_contrast = CONTRAST_DEFAULT;
+    }
+    if (g_backlightLevel < BACKLIGHT_MIN || g_backlightLevel > BACKLIGHT_MAX)
+    {
+        g_backlightLevel = BACKLIGHT_DEFAULT;
     }
     // u8g2.setContrast(g_contrast); // this is done in setup after calling loadSettings()
 
@@ -962,6 +1137,7 @@ ButtonEvent readButton()
         return BUTTON_NONE;
     }
     b.read(); // consume the event
+    noteActivity();
     return (b.wasPressedFor() > longPress) ? BUTTON_LONG : BUTTON_SHORT;
 }
 
@@ -980,13 +1156,134 @@ void toggleBacklight()
 void turnOffBacklight()
 {
     g_backlightOn = false;
-    digitalWrite(BACKLIGHT_PIN, LOW);
+    updateBacklight(true);
     debugln("Backlight off");
 }
 
 void turnOnBacklight()
 {
     g_backlightOn = true;
-    digitalWrite(BACKLIGHT_PIN, HIGH);
+    updateBacklight(true);
     debugln("Backlight on");
+}
+
+/**
+ * @brief Records encoder/button input (idle dim timer) and acknowledges "timer finished".
+ */
+void noteActivity()
+{
+    g_lastActivityMs = millis();
+    if (g_blStatus == BL_DONE)
+    {
+        g_blStatus = BL_IDLE;
+    }
+}
+
+/**
+ * @brief Drives the backlight PWM from the on/off state, brightness level and status.
+ *
+ * Non-blocking; call it often (loop() and servicePage()). Effects swing between the set
+ * brightness and BL_LOW_PERCENT of it, so the screen stays readable. Timer finished and
+ * sensor fault also show when the backlight is toggled off; heating/cleaning do not.
+ * Only call it from loop context: analogWrite() can yield, which is not allowed in the Ticker.
+ */
+void updateBacklight(bool force)
+{
+    static unsigned long lastUpdate = 0;
+    const unsigned long now = millis();
+    if (!force && (now - lastUpdate) < BL_UPDATE_MS)
+    {
+        return;
+    }
+    lastUpdate = now;
+
+    const uint8_t level = (g_previewLevel != 0) ? g_previewLevel : g_backlightLevel;
+    const uint8_t full = BACKLIGHT_LEVEL_DUTY[level - 1];
+    uint8_t low = (full * BL_LOW_PERCENT) / 100;
+    if (low < 1)
+    {
+        low = 1; // never fully off while an effect is running
+    }
+    uint8_t duty;
+
+    if (g_previewLevel != 0)
+    {
+        duty = full; // Backlight page: show the level being chosen
+    }
+    else
+    {
+        switch (g_blStatus)
+        {
+        case BL_FAULT:
+        {
+            // two short blinks every BL_BLINK_MS
+            const uint16_t phase = now % BL_BLINK_MS;
+            const bool blink = (phase < 150) || (phase >= 300 && phase < 450);
+            if (g_backlightOn)
+            {
+                duty = blink ? low : full;
+            }
+            else
+            {
+                duty = blink ? full : 0;
+            }
+            break;
+        }
+        case BL_DONE:
+        {
+            // slow triangle pulse between the low level (or off) and the set brightness
+            const uint8_t base = g_backlightOn ? low : 0;
+            const uint16_t half = BL_PULSE_MS / 2;
+            const uint16_t phase = now % BL_PULSE_MS;
+            const uint16_t ramp = (phase < half) ? phase : (BL_PULSE_MS - phase);
+            duty = base + static_cast<uint8_t>((static_cast<uint32_t>(full - base) * ramp) / half);
+            break;
+        }
+        case BL_HEATING:
+            if (!g_backlightOn)
+            {
+                duty = 0;
+            }
+            else
+            {
+                duty = ((now % BL_FLASH_MS) < (BL_FLASH_MS / 2)) ? full : low;
+            }
+            break;
+        default: // BL_IDLE, BL_CLEANING
+            if (!g_backlightOn)
+            {
+                duty = 0;
+            }
+            else if (g_dimmed)
+            {
+                duty = (full * BL_DIM_PERCENT) / 100;
+                if (duty < 1)
+                {
+                    duty = 1;
+                }
+            }
+            else
+            {
+                duty = full;
+            }
+            break;
+        }
+    }
+    setBacklightDuty(duty);
+}
+
+/**
+ * @brief Writes the backlight PWM duty (0-255), only when it changes.
+ *
+ * All backlight writes go through here: a digitalWrite() on the pin would stop the PWM.
+ */
+void setBacklightDuty(uint8_t duty)
+{
+    static int16_t lastDuty = -1;
+    if (duty == lastDuty)
+    {
+        return;
+    }
+    lastDuty = duty;
+    analogWrite(BACKLIGHT_PIN, duty);
 }

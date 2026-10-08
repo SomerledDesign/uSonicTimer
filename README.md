@@ -4,8 +4,8 @@ Firmware for a timer and heater controller I added to a cheap ultrasonic cleaner
 **ESP8266 (ESP-12E module)**. A **Nokia 5110 (PCD8544, 84x48) LCD** shows a menu that you drive with a
 **rotary encoder and its push button**. A **DS18B20 1-Wire temperature sensor** measures the bowl
 temperature. Two outputs drive **solid-state relays** that switch the 110 VAC bowl **heater** and the
-ultrasonic **cleaner**. The set temperature, timer preset and LCD contrast are saved in (emulated)
-EEPROM, so they survive a power cycle.
+ultrasonic **cleaner**. The set temperature, timer preset, LCD contrast and backlight brightness are
+saved in (emulated) EEPROM, so they survive a power cycle.
 
 The menu approach comes from the [educ8s.tv](https://www.youtube.com/@Educ8s)
 [menu tutorial](https://youtu.be/ak5TsUFhyf8?si=9JEMm8WbRyF4dVVC).
@@ -14,8 +14,9 @@ The menu approach comes from the [educ8s.tv](https://www.youtube.com/@Educ8s)
 
 ## What it does
 
-1. On power-up it loads the settings from EEPROM. If a value is unset it uses a default:
-   72 °F, 10 min, contrast 64. It then initialises the LCD, the DS18B20, the encoder and the button.
+1. On power-up it loads the settings from EEPROM. If a value is unset or out of range it uses a
+   default: 72 °F, 10 min, contrast 128, backlight 100 %. It then initialises the LCD, the DS18B20,
+   the encoder and the button.
 2. It shows the main menu. You pick an item and a long press opens it.
 3. **Start Timer** counts down the selected time and regulates the heater and cleaner:
    - While the bowl is more than `tempOffset` (10 °F) below the set temperature, the **heater is
@@ -27,26 +28,42 @@ The menu approach comes from the [educ8s.tv](https://www.youtube.com/@Educ8s)
 
 ## Menu tree
 
-In the menu, rotating the encoder moves the reverse-video highlight, a **long press** (> 1 s)
-enters the highlighted item, and a **short press** toggles the LCD backlight. The backlight is on
-at power-up. Its state is kept while you are in a page, because short presses inside the pages move
-the cursor or confirm instead. There is no automatic backlight timeout. Every button press is handled
-exactly once, so a press never carries over into the next page.
+In the menu, rotating the encoder moves the reverse-video highlight (the menu shows 4 rows and
+scrolls), a **long press** (> 1 s) enters the highlighted item, and a **short press** toggles the
+LCD backlight between off and the brightness set in **Backlight**. The backlight is on at power-up.
+Its state is kept while you are in a page, because short presses inside the pages move the cursor
+or confirm instead. After 5 minutes without input in the menu the backlight dims to about 20 %; the
+first turn or press then only wakes it. Every button press is handled exactly once, so a press never
+carries over into the next page.
+
+The backlight also shows the status (it swings between the set brightness and about 30 % of it, so
+the screen stays readable):
+
+- **Steady**: normal operation (menu, cleaning).
+- **Flashing** (1 Hz): heating up.
+- **Pulsing** (slow): the timer has finished; stops at the next turn or press.
+- **Double-blink** every 2 s: no temperature sensor during a run (heater locked off, cleaner runs).
+
+Pulsing and double-blink also show when the backlight has been toggled off; heating and cleaning
+then stay dark.
 
 ```
 Main menu
-├── Start Timer   "Time Left: m:ss" / "Temp: <current>F / <set>F"
+├── Start Timer   "Time Left:" / "mm:ss" / "Now: <current>F" (or "Temp: --") / "Set: <set>F"
 │                 runs heater/cleaner as above; long press = abort (both outputs off)
-├── Set Timer     "Set Timer: <n> min"
+├── Set Timer     "Set Timer:" / "<n> min"
 │                 rotate = choose preset 3, 8, 10, 15, 20, 30, 60 min (wraps)
 │                 press = save to EEPROM and return
-├── Set Temp      "Set Temp: ddd F" (3 digits, cursor digit in reverse video)
+├── Set Temp      "Set Temp:" / "ddd F" (3 digits, cursor digit in reverse video)
 │                 short press = move cursor (hundreds → tens → units → …)
 │                 rotate = change digit under cursor (0–9, wraps)
 │                 long press = save to EEPROM and return
-└── Contrast      "Contrast: ddd" (3 digits, cursor digit in reverse video)
-                  short press = move cursor; rotate = ±100 / ±10 / ±1 (clamped 0–255, applied live)
-                  long press = save to EEPROM and return
+├── Contrast      "Contrast:" / ddd (3 digits, cursor digit in reverse video)
+│                 short press = move cursor; rotate clockwise = +100 / +10 / +1
+│                 (clamped 80–200, applied live); long press = save to EEPROM and return
+└── Backlight     "Backlight:" / "[#######   ]" / "70%"
+                  rotate = brightness 10–100 % in 10 % steps (clockwise = brighter, previewed live)
+                  long press = save to EEPROM, switch the backlight on and return
 ```
 
 ## Hardware (PCB rev 1d) pin map
@@ -103,7 +120,8 @@ pio device monitor -b 115200        # serial monitor (debug output)
    connect the heater and cleaner through the SSRs.
 2. Build and flash as above, then power up. The main menu appears.
 3. Use **Set Temp** to choose the target bowl temperature (°F), **Set Timer** to choose the run
-   time and **Contrast** to adjust the LCD if needed. Each setting is saved when you leave its page.
+   time, **Contrast** to adjust the LCD and **Backlight** to set its brightness if needed. Each
+   setting is saved when you leave its page.
 4. Highlight **Start Timer** and long-press. The display shows the remaining time and the current
    and set temperature while the heater and cleaner are controlled automatically.
 5. Long-press at any time to stop. Both outputs switch off.
