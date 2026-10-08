@@ -44,6 +44,7 @@
  *   damage/harm to you, others or property then you are on your own. This work is experimental.
  *
  */
+// Build 69 — Rev D (PCB rev 1d)
 /**
  *  Physical pins listed for comparison to pcb.
  *  in version 1b pcb 2/2023 the CS is connected to ground
