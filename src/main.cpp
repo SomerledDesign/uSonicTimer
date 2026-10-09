@@ -112,8 +112,8 @@
  *    Rotary Encoder
  *      Func          Non i/o     Digitial     GPIO i/o     ESP12e Pin        Descr.         Ω out
  *     ===========================================================================================
- *      ROT_ENC_A_PIN             D0           GPIO16      4                  CLK (10K pull-up) ✓
- *      ROT_ENC_B_PIN             D6           GPIO12      6                  DT               ✓
+ *      ROT_ENC_A_PIN             D0           GPIO16      4                  CLK (4K7 pull-up, R9) ✓
+ *      ROT_ENC_B_PIN             D6           GPIO12      6                  DT (4K7 pull-up, R10) ✓
  *      ROT_ENC_BUTTON_PIN        D9           GPIO3       21                 SW(/RX)           ✓
  *
  *    Relays

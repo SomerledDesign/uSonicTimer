@@ -10,7 +10,7 @@ backlight brightness are saved in (emulated) EEPROM, so they survive a power cyc
 The menu approach comes from the [educ8s.tv](https://www.youtube.com/@Educ8s)
 [menu tutorial](https://youtu.be/ak5TsUFhyf8?si=9JEMm8WbRyF4dVVC).
 
-> Status: maintenance only.
+> Status: in active development (v0.6.1, PCB Rev D).
 
 ## What it does
 
