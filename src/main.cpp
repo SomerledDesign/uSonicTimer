@@ -3,7 +3,7 @@
  * @remarks uSonicTimer
  * @author Kevin Murphy (https://www.SomerledDesign.com)
  * @brief an addition to an old, inexpensive Ultrasonic cleaner to include heating and timing
- * @version 0.6.0 (72)
+ * @version 0.6.1 (73)
  * @date 10/08/26
  *
  * @copyright Copyright (c) 2024 Somerled Design, LLC in Kevin Murphy
@@ -39,6 +39,8 @@
  *   .400 - 08/28/24 - rewrite of Grok2 code by Kevin Murphy
  *   0.6.0 (72) - 10/08/26 - big-digit run screens (timer holds while heating), Settings menu,
  *                           F/C units, backlight 0 = off, contrast shown as 20-100
+ *   0.6.1 (73) - 10/08/26 - blocky big-digit font; encoder acceleration in Set contrast;
+ *                           a press saves in every settings page
  *
  * DISCLAIMER:
  *   With this design, including both the hardware & software I offer no guarantee that it is bug
@@ -46,11 +48,11 @@
  *   damage/harm to you, others or property then you are on your own. This work is experimental.
  *
  */
-// Firmware version, shown as "0.6.0 (72)": semantic version MAJOR.MINOR.PATCH plus a build number.
+// Firmware version, shown as "0.6.1 (73)": semantic version MAJOR.MINOR.PATCH plus a build number.
 // Bump PATCH for fixes, MINOR for features; 1.0.0 once it is installed and in service.
 // FW_BUILD goes up by 1 for every build flashed for testing and never resets.
-#define FW_VERSION "0.6.0"
-#define FW_BUILD 72
+#define FW_VERSION "0.6.1"
+#define FW_BUILD 73
 #define HW_REV "D" // PCB rev 1d
 /**
  *  Physical pins listed for comparison to pcb.
@@ -331,6 +333,11 @@ int8_t g_encLastDir = 0;     // direction of the last valid transition
 int16_t g_encPosition = 0;   // detents turned since power-up
 uint16_t g_encEdgesA = 0;    // raw A/B changes, shown on the encoder test screen
 uint16_t g_encEdgesB = 0;
+unsigned long g_encDetentMs = 0;          // when the last detent was counted
+uint16_t g_encDetentGapMs = ENC_GAP_NONE; // ms since the detent before it (same direction)
+int8_t g_encDetentDir = 0;                // direction of the last detent
+uint8_t g_encSteps = 1;      // acceleration of the detent readRotaryEncoder() last returned
+uint8_t g_buttonClicks = 0;  // clicks in the event readButton() last returned (2 = double click)
 
 volatile bool down  = false; // Flags for the encoder
 volatile bool up    = false;
@@ -386,6 +393,7 @@ void showStartupScreen();
 void servicePage();
 void sendBufferPolled();
 void readRotaryEncoder();
+void flushEncoder();
 void turnOnHeater();
 void turnOffHeater();
 void turnOnCleaner();
@@ -794,15 +802,17 @@ void setTimerSubmenu()
             break;
         }
     }
+    flushEncoder();
 }
 
 /**
  * @brief Shows the temperature selection page (Settings > Set temp)
  *
  * Edits the set temperature in the display unit: 3 digits in F (60..180), 2 in C (16..82).
- * Short press moves the cursor digit (shown in reverse video), rotating changes it (0-9, wraps),
- * long press saves and exits. The value is always stored in whole F; a C value that was not
- * changed leaves the stored F value as it was.
+ * Rotating changes the cursor digit (reverse video, 0-9, wraps). A short press moves to the
+ * next digit; a short press on the last digit saves and exits. A long press saves at any time.
+ * The value is always stored in whole F; a C value that was not changed leaves the stored
+ * F value as it was.
  */
 void setTemperatureSubmenu()
 {
@@ -824,7 +834,8 @@ void setTemperatureSubmenu()
     {
         servicePage();
         readRotaryEncoder();
-        drawDigitEditor(u8g2, "Set temp", digits, n, cursorPosition, unitSuffix(), "Hold = save");
+        drawDigitEditor(u8g2, "Set temp", digits, n, cursorPosition, unitSuffix(),
+                        (cursorPosition + 1 < n) ? "Press = next" : "Press = save");
         sendBufferPolled();
 
         if (down)
@@ -839,15 +850,26 @@ void setTemperatureSubmenu()
         }
 
         const ButtonEvent event = readButton();
+        bool save = (event == BUTTON_LONG); // long press saves from any digit
 
-        // short press moves the cursor position
+        // short press moves to the next digit; on the last digit it saves
+        // (a double click, which Button2 reports as one event, moves two digits)
         if (event == BUTTON_SHORT)
         {
-            cursorPosition = (cursorPosition + 1) % n;
+            for (uint8_t k = 0; k < g_buttonClicks && !save; k++)
+            {
+                if (cursorPosition + 1 >= n)
+                {
+                    save = true;
+                }
+                else
+                {
+                    cursorPosition++;
+                }
+            }
         }
 
-        // long press will save and exit
-        if (event == BUTTON_LONG)
+        if (save)
         {
             int16_t newValue = 0;
             for (uint8_t i = 0; i < n; i++)
@@ -863,6 +885,7 @@ void setTemperatureSubmenu()
             break;
         }
     }
+    flushEncoder();
 }
 
 /**
@@ -897,13 +920,15 @@ void setUnitsSubmenu()
             break;
         }
     }
+    flushEncoder();
 }
 
 /**
  * @brief Adjusts the display contrast (Settings > Set contrast)
  *
  * Shows the contrast as 20..100, mapped linearly onto the usable raw range 80..200
- * (outside it the display blanks). Clockwise increases; applied live. A long press saves
+ * (outside it the display blanks). Clockwise increases, with acceleration (a quick turn moves
+ * 5 per detent, a medium one 2, single clicks 1); applied live. Any press (short or long) saves
  * and exits. Leaving the value unchanged keeps the exact raw value saved before.
  */
 void adjustContrast()
@@ -917,25 +942,19 @@ void adjustContrast()
         readRotaryEncoder();
         char value[6];
         snprintf(value, sizeof(value), "%u", static_cast<unsigned>(ui));
-        drawValuePage(u8g2, "Set contrast", value, ui - CONTRAST_UI_MIN, CONTRAST_UI_MAX - CONTRAST_UI_MIN, "Hold = save");
+        drawValuePage(u8g2, "Set contrast", value, ui - CONTRAST_UI_MIN, CONTRAST_UI_MAX - CONTRAST_UI_MIN, "Press = save");
         sendBufferPolled();
 
-        // clockwise (down) = increase, same as the other pages
+        // clockwise (down) = increase, same as the other pages; accelerated by g_encSteps
         if (down)
         {
             down = false;
-            if (ui < CONTRAST_UI_MAX)
-            {
-                ui++;
-            }
+            ui = (ui + g_encSteps < CONTRAST_UI_MAX) ? static_cast<uint8_t>(ui + g_encSteps) : CONTRAST_UI_MAX;
         }
         else if (up)
         {
             up = false;
-            if (ui > CONTRAST_UI_MIN)
-            {
-                ui--;
-            }
+            ui = (ui > CONTRAST_UI_MIN + g_encSteps) ? static_cast<uint8_t>(ui - g_encSteps) : CONTRAST_UI_MIN;
         }
         const uint8_t raw = (ui == startUi) ? g_contrast : contrastUiToRaw(ui);
         if (raw != applied)
@@ -944,8 +963,8 @@ void adjustContrast()
             applied = raw;
         }
 
-        // long press will save and exit; short press does nothing here
-        if (readButton() == BUTTON_LONG)
+        // any press saves and exits
+        if (readButton() != BUTTON_NONE)
         {
             if (raw != g_contrast)
             {
@@ -955,13 +974,15 @@ void adjustContrast()
             break;
         }
     }
+    flushEncoder();
 }
 
 /**
  * @brief Adjusts the backlight brightness (Settings > Set backlight)
  *
  * Rotating the encoder changes the level (0..10, 0 = off, clockwise = brighter) and previews
- * it live. A long press saves the level to EEPROM, switches the backlight on and exits.
+ * it live, one level per detent (no acceleration for 11 levels). Any press (short or long) saves
+ * the level to EEPROM, switches the backlight on and exits.
  */
 void setBacklightSubmenu()
 {
@@ -981,7 +1002,7 @@ void setBacklightSubmenu()
         {
             snprintf(value, sizeof(value), "Level %u", static_cast<unsigned>(level));
         }
-        drawValuePage(u8g2, "Set backlight", value, level, BACKLIGHT_MAX, "Hold = save");
+        drawValuePage(u8g2, "Set backlight", value, level, BACKLIGHT_MAX, "Press = save");
         sendBufferPolled();
 
         if (down)
@@ -1001,8 +1022,8 @@ void setBacklightSubmenu()
             }
         }
 
-        // long press will save and exit; short press does nothing here
-        if (readButton() == BUTTON_LONG)
+        // any press saves and exits
+        if (readButton() != BUTTON_NONE)
         {
             g_backlightLevel = level;
             saveSettings();
@@ -1012,6 +1033,7 @@ void setBacklightSubmenu()
     }
     g_previewActive = false;
     updateBacklight(true);
+    flushEncoder();
 }
 
 /**
@@ -1108,6 +1130,7 @@ void pollEncoder()
 
     if (s == 0x00 || s == 0x03) // rest state (A == B)
     {
+        const int16_t before = g_encPosition;
         while (g_encCount >= ENCODER_STEPS_PER_DETENT)
         {
             g_encCount -= ENCODER_STEPS_PER_DETENT;
@@ -1117,6 +1140,16 @@ void pollEncoder()
         {
             g_encCount += ENCODER_STEPS_PER_DETENT;
             g_encPosition--;
+        }
+        if (g_encPosition != before)
+        {
+            // time between detents, for the acceleration in the value editors
+            const int8_t dir = (g_encPosition > before) ? 1 : -1;
+            const unsigned long now = millis();
+            const unsigned long gap = now - g_encDetentMs;
+            g_encDetentGapMs = (dir == g_encDetentDir && gap < ENC_GAP_NONE) ? static_cast<uint16_t>(gap) : ENC_GAP_NONE;
+            g_encDetentMs = now;
+            g_encDetentDir = dir;
         }
     }
 }
@@ -1158,9 +1191,16 @@ void sendBufferPolled()
     }
 }
 
+/**
+ * @brief Turns the next pending detent into the down (clockwise) or up flag.
+ *
+ * Also sets g_encSteps, the acceleration for that detent (1, 2 or 5, see encoderAccelSteps()).
+ * Only the value editors use g_encSteps; menus and the other pages move one step per detent.
+ */
 void readRotaryEncoder()
 {
     const int16_t position = g_encPosition;
+    g_encSteps = encoderAccelSteps(g_encDetentGapMs);
 
     // consume one detent per call so steps that arrive during a redraw are not dropped
     if (position > last)
@@ -1175,6 +1215,16 @@ void readRotaryEncoder()
         up = true;
         noteActivity();
     }
+}
+
+/**
+ * @brief Drops detents still queued when a page closes, so they don't move the menu highlight.
+ */
+void flushEncoder()
+{
+    last = g_encPosition;
+    down = false;
+    up = false;
 }
 
 /**
@@ -1357,12 +1407,18 @@ void loadSettings()
  * Button2 leaves wasPressed() set until read() is called, so the event is cleared here to
  * avoid acting on the same press again on the next pass or in the next menu page.
  * A press held longer than longPress counts as BUTTON_LONG, anything shorter as BUTTON_SHORT.
+ * Button2 reports quick repeated presses as one event; g_buttonClicks holds how many.
  */
 ButtonEvent readButton()
 {
     if (!b.wasPressed())
     {
         return BUTTON_NONE;
+    }
+    g_buttonClicks = b.getNumberOfClicks();
+    if (g_buttonClicks == 0)
+    {
+        g_buttonClicks = 1;
     }
     b.read(); // consume the event
     noteActivity();

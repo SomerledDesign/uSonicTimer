@@ -1,6 +1,7 @@
 // Host-side checks for include/ust_logic.h and the big-font layout (see build.sh).
 #include "ust_logic.h"
 #include "screens.h"
+#include "bigfont.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -119,6 +120,33 @@ int main()
         }
     }
 
+    // ---- encoder acceleration ----
+    CHECK(encoderAccelSteps(ENC_GAP_NONE) == 1);
+    CHECK(encoderAccelSteps(500) == 1);
+    CHECK(encoderAccelSteps(90) == 1);
+    CHECK(encoderAccelSteps(89) == 2);
+    CHECK(encoderAccelSteps(40) == 2);
+    CHECK(encoderAccelSteps(39) == 5);
+    CHECK(encoderAccelSteps(5) == 5);
+    {
+        // contrast 20 -> 100 like adjustContrast(): one quick turn of a 20-detent encoder
+        // (~0.4 s per turn, 20 ms between detents; the first detent has no gap)
+        int ui = CONTRAST_UI_MIN;
+        for (int d = 0; d < 20; d++)
+        {
+            const int steps = encoderAccelSteps(d == 0 ? ENC_GAP_NONE : 20);
+            ui = (ui + steps < CONTRAST_UI_MAX) ? ui + steps : CONTRAST_UI_MAX;
+        }
+        CHECK(ui == CONTRAST_UI_MAX);
+        // deliberate single clicks (200 ms apart) step by 1
+        ui = 52;
+        for (int d = 0; d < 3; d++)
+        {
+            ui += encoderAccelSteps(d == 0 ? ENC_GAP_NONE : 200);
+        }
+        CHECK(ui == 55);
+    }
+
     // ---- progress ----
     CHECK(progressPx(0, 600000, 84) == 0);
     CHECK(progressPx(300000, 600000, 84) == 42);
@@ -134,12 +162,24 @@ int main()
     CHECK(heatProgressPx(70.0f, 150.0f, 120.0f, 84) == 84); // overshoot
 
     // ---- big font sizes ----
-    CHECK(bigTextWidth("00:23") == 75);
+    CHECK(bigTextWidth("00:23") == 76);
     CHECK(bigTextWidth("60:00") <= LCD_WIDTH);
     CHECK(bigTextWidth("DONE") == 69);
     CHECK(bigTextWidth("-99") == 51);
     CHECK(bigTextWidth("999") == 51);
     CHECK(BIG_TOP + BIG_CHAR_H <= 32);
+    // every box of every big character stays inside its cell
+    for (uint8_t i = 0; BIG_GLYPH_CHARS[i] != '\0'; i++)
+    {
+        const uint8_t cellW = (BIG_GLYPH_CHARS[i] == ':') ? BIG_COLON_W : BIG_CHAR_W;
+        CHECK(BIG_GLYPH_FIRST[i] < BIG_GLYPH_FIRST[i + 1]);
+        for (uint8_t k = BIG_GLYPH_FIRST[i]; k < BIG_GLYPH_FIRST[i + 1]; k++)
+        {
+            CHECK(BIG_BOXES[k].w > 0 && BIG_BOXES[k].h > 0);
+            CHECK(BIG_BOXES[k].x + BIG_BOXES[k].w <= cellW);
+            CHECK(BIG_BOXES[k].y + BIG_BOXES[k].h <= BIG_CHAR_H);
+        }
+    }
 
     printf("%s (%d failure%s)\n", failures ? "FAILED" : "all checks passed", failures, failures == 1 ? "" : "s");
     return failures ? 1 : 0;

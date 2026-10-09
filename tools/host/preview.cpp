@@ -50,6 +50,9 @@ int main(int argc, char **argv)
         formatTimerLine(g, line, sizeof(line), true, displayTemp(-40.0f, false), 180, false);
         drawTimerScreen(g, 3600, true, 0, line);
         save(g, dir, "timer_worst_case");
+        formatTimerLine(g, line, sizeof(line), true, displayTemp(118.4f, false), 120, false);
+        drawTimerScreen(g, 12 * 60 + 48, true, progressPx(220000, 600000, LCD_WIDTH), line);
+        save(g, dir, "timer_12_48");
         formatTimerLine(g, line, sizeof(line), false, 0, 120, false);
         drawTimerScreen(g, 245, true, progressPx(355000, 600000, LCD_WIDTH), line);
         save(g, dir, "timer_no_sensor");
@@ -90,18 +93,20 @@ int main(int argc, char **argv)
     // settings pages
     {
         const uint8_t d3[3] = {1, 2, 0};
-        drawDigitEditor(g, "Set temp", d3, 3, 1, DEG_SIGN "F", "Hold = save");
+        drawDigitEditor(g, "Set temp", d3, 3, 1, DEG_SIGN "F", "Press = next");
         save(g, dir, "page_set_temp_F");
+        drawDigitEditor(g, "Set temp", d3, 3, 2, DEG_SIGN "F", "Press = save");
+        save(g, dir, "page_set_temp_F_last_digit");
         const uint8_t d2[2] = {4, 9};
-        drawDigitEditor(g, "Set temp", d2, 2, 0, DEG_SIGN "C", "Hold = save");
+        drawDigitEditor(g, "Set temp", d2, 2, 0, DEG_SIGN "C", "Press = next");
         save(g, dir, "page_set_temp_C");
         drawValuePage(g, "Set time", "10 min", 0, 0, "Press = save");
         save(g, dir, "page_set_time");
         drawValuePage(g, "Set units", DEG_SIGN "F Fahrenheit", 0, 0, "Press = save");
         save(g, dir, "page_set_units");
-        drawValuePage(g, "Set backlight", "Level 7", 7, 10, "Hold = save");
+        drawValuePage(g, "Set backlight", "Level 7", 7, 10, "Press = save");
         save(g, dir, "page_set_backlight");
-        drawValuePage(g, "Set contrast", "52", 52 - CONTRAST_UI_MIN, CONTRAST_UI_MAX - CONTRAST_UI_MIN, "Hold = save");
+        drawValuePage(g, "Set contrast", "52", 52 - CONTRAST_UI_MIN, CONTRAST_UI_MAX - CONTRAST_UI_MIN, "Press = save");
         save(g, dir, "page_set_contrast");
     }
     return 0;

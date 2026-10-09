@@ -2,7 +2,7 @@
  * @file screens.cpp
  * @brief Drawing for the uSonicTimer pages, see screens.h.
  *
- * Run screens follow the cbm80amiga Nokia 5110 clock style: big chunky characters filling the
+ * Run screens follow the cbm80amiga Nokia 5110 clock style: big blocky characters filling the
  * top of the screen, a 1 px rule under them that doubles as a progress bar, one line of small
  * text and another rule. Menus and settings pages get a solid title bar with inverse text.
  *
@@ -56,7 +56,7 @@ uint8_t bigTextWidth(const char *s)
     return static_cast<uint8_t>((w > 255) ? 255 : w);
 }
 
-/// one character; unknown characters (and ' ') are blank
+/// one character from its boxes; unknown characters (and ' ') are blank
 static void drawBigChar(U8G2 &g, int16_t x, int16_t y, char c)
 {
     const int8_t idx = bigGlyphIndex(c);
@@ -64,37 +64,18 @@ static void drawBigChar(U8G2 &g, int16_t x, int16_t y, char c)
     {
         return;
     }
-    uint8_t firstCol = 0;
-    uint8_t lastCol = BIG_GLYPH_COLS - 1;
-    if (c == ':') // narrow colon: only its lit column(s)
+    const uint8_t first = pgm_read_byte(&BIG_GLYPH_FIRST[idx]);
+    const uint8_t end = pgm_read_byte(&BIG_GLYPH_FIRST[idx + 1]);
+    for (uint8_t i = first; i < end; i++)
     {
-        firstCol = 2;
-        lastCol = 2;
-    }
-    for (uint8_t col = firstCol; col <= lastCol; col++)
-    {
-        const uint8_t bits = pgm_read_byte(&BIG_GLYPHS[idx][col]);
-        const int16_t px = x + (col - firstCol) * BIG_SCALE_X;
-        // one box per vertical run of set pixels
-        uint8_t row = 0;
-        while (row < BIG_GLYPH_ROWS)
+        const int16_t bx = x + pgm_read_byte(&BIG_BOXES[i].x);
+        const int16_t by = y + pgm_read_byte(&BIG_BOXES[i].y);
+        const uint8_t bw = pgm_read_byte(&BIG_BOXES[i].w);
+        const uint8_t bh = pgm_read_byte(&BIG_BOXES[i].h);
+        // skip anything that would leave the screen (u8g2 coordinates are unsigned)
+        if (bx >= 0 && by >= 0 && bx + bw <= LCD_WIDTH && by + bh <= LCD_HEIGHT)
         {
-            if (!(bits & (1 << row)))
-            {
-                row++;
-                continue;
-            }
-            uint8_t end = row;
-            while (end < BIG_GLYPH_ROWS && (bits & (1 << end)))
-            {
-                end++;
-            }
-            const int16_t py = y + row * BIG_SCALE_Y;
-            if (px >= 0 && py >= 0 && px + BIG_SCALE_X <= LCD_WIDTH && py + (end - row) * BIG_SCALE_Y <= LCD_HEIGHT)
-            {
-                g.drawBox(px, py, BIG_SCALE_X, (end - row) * BIG_SCALE_Y);
-            }
-            row = end;
+            g.drawBox(bx, by, bw, bh);
         }
     }
 }

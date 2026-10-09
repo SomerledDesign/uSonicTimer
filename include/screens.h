@@ -18,12 +18,10 @@
 // Keep it a separate string literal ("\xB0" "F"), otherwise the F joins the hex escape.
 #define DEG_SIGN "\xB0"
 
-// ---- big digits (Adafruit 5x7 glyphs, scaled 3x wide, 4x tall) ----
-#define BIG_SCALE_X   3
-#define BIG_SCALE_Y   4
-#define BIG_CHAR_W    15 // 5 columns x 3
-#define BIG_CHAR_H    28 // 7 rows x 4
-#define BIG_COLON_W   3  // only the colon's lit column
+// ---- big characters (blocky font in bigfont.h) ----
+#define BIG_CHAR_W    15
+#define BIG_CHAR_H    28
+#define BIG_COLON_W   4  // the colon is two 4x4 blocks
 #define BIG_GAP       3  // between characters
 #define BIG_TOP       2  // top row of the big characters on the run screens
 

@@ -67,15 +67,17 @@ Main menu "uSonicTimer"      (shows the set temperature and time underneath)
 │                     long press = abort (both outputs off)
 └── Settings...
     ├── Set temp      "ddd°F" (3 digits) or "dd°C" (2 digits), cursor digit in reverse video
-    │                 short press = move cursor; rotate = change digit (0–9, wraps)
-    │                 long press = save and return (clamped 60–180 °F / 16–82 °C, stored in °F)
+    │                 rotate = change digit (0–9, wraps); press = next digit ("Press = next"),
+    │                 press on the last digit = save and return ("Press = save");
+    │                 long press = save from any digit (clamped 60–180 °F / 16–82 °C, stored in °F)
     ├── Set time      "<n> min"; rotate = preset 3, 8, 10, 15, 20, 30, 60 min (wraps)
     │                 press = save and return
     ├── Set units     "°F Fahrenheit" / "°C Celsius"; rotate = toggle, press = save and return
     ├── Set backlight "Off" / "Level 1"…"Level 10" with a bar; rotate = level (previewed live)
-    │                 long press = save, switch the backlight on and return
+    │                 press = save, switch the backlight on and return
     ├── Set contrast  20–100 with a bar (mapped onto the usable raw 80–200); clockwise = higher,
-    │                 applied live; long press = save and return
+    │                 accelerated (detents < 40 ms apart = 5 steps, < 90 ms = 2, else 1),
+    │                 applied live; press = save and return
     └── Exit          back to the main menu
 ```
 
@@ -135,17 +137,24 @@ pio device monitor -b 115200        # serial monitor (debug output)
 
 ## Versioning
 
-Firmware versions are a semantic version plus a build number, shown as **`0.6.0 (72)`** (current).
+Firmware versions are a semantic version plus a build number, shown as **`0.6.1 (73)`** (current).
 
 - Bump PATCH for fixes and MINOR for features; 1.0.0 is the first version installed and in service.
 - The build number goes up by 1 for every build flashed for testing and never resets.
 - `FW_VERSION`, `FW_BUILD` and `HW_REV` at the top of `src/main.cpp` set it. The startup screen
-  shows `uSonicTimer` / `v0.6.0 (72)` / `PCB Rev D` for 1.5 s at power-up. Releases are tagged
+  shows `uSonicTimer` / `v0.6.1 (73)` / `PCB Rev D` for 1.5 s at power-up. Releases are tagged
   `vMAJOR.MINOR.PATCH` in git.
 
 History:
 
-- **0.6.0 (72)**: big-digit run screens in the style of a Nokia 5110 clock (Adafruit 5x7 digits
+- **0.6.1 (73)**: new big-digit font: blocky, squared-off 7-segment-style characters (4–5 px
+  strokes, no diagonals, stepped slashed zero, colon of two 4x4 blocks) drawn from box lists in
+  `include/bigfont.h`, closer to the reference clock than the scaled 5x7 font. Encoder
+  acceleration in Set contrast (5 / 2 / 1 steps per detent for detents
+  < 40 ms / < 90 ms / slower apart). A press saves in every settings page ("Press = save"); in Set
+  temp a press moves to the next digit and saves on the last one, long press still saves anywhere.
+  Detents still queued when a page closes no longer move the menu highlight.
+- 0.6.0 (72): big-digit run screens in the style of a Nokia 5110 clock (Adafruit 5x7 digits
   scaled to 15x28 px, a rule that doubles as a progress bar, one line of small text): heating
   screen with the bowl temperature, timer screen with blinking colon, DONE screen. The countdown
   holds while heating (heater below set − 10 °F, cleaning resumes at set − 8 °F). Main menu is now
@@ -174,7 +183,7 @@ History:
 - `src/screens.cpp`, `include/screens.h`: drawing for the run screens, menus and settings pages.
 - `include/ust_logic.h`: run-control hysteresis, °F/°C, contrast and progress helpers (no Arduino
   dependencies).
-- `include/bigfont.h`: the big-digit glyphs (from the Adafruit 5x7 font, slashed zero kept).
+- `include/bigfont.h`: the big-digit font (blocky 15x28 characters as box lists, slashed zero).
 - `tools/host/`: host-side test of `ust_logic.h` and a screen preview that runs the real drawing
   code against the U8g2 C library on a PC (`tools/host/build.sh`, writes PNGs to
   `tools/host/out/`).

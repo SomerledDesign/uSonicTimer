@@ -74,6 +74,28 @@ inline uint16_t remainingSeconds(uint32_t totalMs, uint32_t elapsedMs)
     return static_cast<uint16_t>((totalMs - elapsedMs + 999UL) / 1000UL);
 }
 
+// ---- encoder acceleration (value editors only, not menu navigation) -----------
+// The gap is the time between two detents turned in the same direction. A quick turn crosses
+// the 80 contrast steps (about 1 + 16 x 5 detents); single clicks are far slower than 90 ms.
+#define ENC_ACCEL_FAST_MS      40 // detents closer than this count as ENC_ACCEL_FAST_STEPS
+#define ENC_ACCEL_MEDIUM_MS    90 // closer than this count as ENC_ACCEL_MEDIUM_STEPS
+#define ENC_ACCEL_FAST_STEPS   5
+#define ENC_ACCEL_MEDIUM_STEPS 2
+#define ENC_GAP_NONE           0xFFFF // first detent, or the direction changed
+
+inline uint8_t encoderAccelSteps(uint16_t gapMs)
+{
+    if (gapMs < ENC_ACCEL_FAST_MS)
+    {
+        return ENC_ACCEL_FAST_STEPS;
+    }
+    if (gapMs < ENC_ACCEL_MEDIUM_MS)
+    {
+        return ENC_ACCEL_MEDIUM_STEPS;
+    }
+    return 1;
+}
+
 // ---- rounding and units ------------------------------------------------------
 inline int16_t roundToInt(float v)
 {
