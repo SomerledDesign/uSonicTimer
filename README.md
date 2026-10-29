@@ -37,8 +37,10 @@ The menu approach comes from the [educ8s.tv](https://www.youtube.com/@Educ8s)
 
 In the menus, rotating the encoder moves the reverse-video highlight (lists show 4 rows under the
 title bar and scroll; small arrows mark more items), a **long press** (> 1 s) enters the
-highlighted item, and a **short press** toggles the LCD backlight between off and the level set in
-**Set backlight**. The backlight is on at power-up.
+highlighted item. A **short press** (tap) on the main menu depends on the highlighted item: on
+**Start** it starts the timer, on **Settings...** it toggles the LCD backlight between off and the
+level set in **Set backlight**. Inside the Settings list a tap does nothing (long press opens an
+item), and no other screen toggles the backlight. The backlight is on at power-up.
 Its state is kept while you are in a page, because short presses inside the pages move the cursor
 or confirm instead. After 5 minutes without input in the menu the backlight dims to about 20 %; the
 first turn or press then only wakes it. Every button press is handled exactly once, so a press never
@@ -137,17 +139,19 @@ pio device monitor -b 115200        # serial monitor (debug output)
 
 ## Versioning
 
-Firmware versions are a semantic version plus a build number, shown as **`0.6.1 (73)`** (current).
+Firmware versions are a semantic version plus a build number, shown as **`0.6.2 (74)`** (current).
 
 - Bump PATCH for fixes and MINOR for features; 1.0.0 is the first version installed and in service.
 - The build number goes up by 1 for every build flashed for testing and never resets.
 - `FW_VERSION`, `FW_BUILD` and `HW_REV` at the top of `src/main.cpp` set it. The startup screen
-  shows `uSonicTimer` / `v0.6.1 (73)` / `PCB Rev D` for 1.5 s at power-up. Releases are tagged
+  shows `uSonicTimer` / `v0.6.2 (74)` / `PCB Rev D` for 1.5 s at power-up. Releases are tagged
   `vMAJOR.MINOR.PATCH` in git.
 
 History:
 
-- **0.6.1 (73)**: new big-digit font: blocky, squared-off 7-segment-style characters (4–5 px
+- **0.6.2 (74)**: a tap on **Start** starts the timer; a tap toggles the backlight only on the
+  main menu's **Settings...** entry, no longer in the Settings list or elsewhere.
+- 0.6.1 (73): new big-digit font: blocky, squared-off 7-segment-style characters (4–5 px
   strokes, no diagonals, stepped slashed zero, colon of two 4x4 blocks) drawn from box lists in
   `include/bigfont.h`, closer to the reference clock than the scaled 5x7 font. Encoder
   acceleration in Set contrast (5 / 2 / 1 steps per detent for detents
@@ -172,7 +176,7 @@ History:
 3. Open **Settings...** and use **Set temp** to choose the target bowl temperature, **Set time**
    to choose the run time, **Set units** for °F or °C, and **Set backlight** / **Set contrast** for
    the LCD if needed. Each setting is saved when you leave its page.
-4. Highlight **Start** and long-press. The display shows the bowl temperature while it heats, then
+4. Highlight **Start** and press (tap or long-press). The display shows the bowl temperature while it heats, then
    the time left while it cleans; the heater and cleaner are controlled automatically.
 5. Long-press at any time to stop. Both outputs switch off. When the time is up, DONE shows until
    you turn or press.

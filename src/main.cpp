@@ -3,7 +3,7 @@
  * @remarks uSonicTimer
  * @author Kevin Murphy (https://www.SomerledDesign.com)
  * @brief an addition to an old, inexpensive Ultrasonic cleaner to include heating and timing
- * @version 0.6.1 (73)
+ * @version 0.6.2 (74)
  * @date 10/08/26
  *
  * @copyright Copyright (c) 2024 Somerled Design, LLC in Kevin Murphy
@@ -41,6 +41,8 @@
  *                           F/C units, backlight 0 = off, contrast shown as 20-100
  *   0.6.1 (73) - 10/08/26 - blocky big-digit font; encoder acceleration in Set contrast;
  *                           a press saves in every settings page
+ *   0.6.2 (74) - 10/29/26 - tap on Start starts the timer; tap toggles the backlight only
+ *                           on the Settings... entry of the main menu
  *
  * DISCLAIMER:
  *   With this design, including both the hardware & software I offer no guarantee that it is bug
@@ -48,11 +50,11 @@
  *   damage/harm to you, others or property then you are on your own. This work is experimental.
  *
  */
-// Firmware version, shown as "0.6.1 (73)": semantic version MAJOR.MINOR.PATCH plus a build number.
+// Firmware version, shown as "0.6.2 (74)": semantic version MAJOR.MINOR.PATCH plus a build number.
 // Bump PATCH for fixes, MINOR for features; 1.0.0 once it is installed and in service.
 // FW_BUILD goes up by 1 for every build flashed for testing and never resets.
-#define FW_VERSION "0.6.1"
-#define FW_BUILD 73
+#define FW_VERSION "0.6.2"
+#define FW_BUILD 74
 #define HW_REV "D" // PCB rev 1d
 /**
  *  Physical pins listed for comparison to pcb.
@@ -256,7 +258,7 @@ uint8_t g_timerSetting;      // The timer to be set in minutes
 uint8_t g_contrast;          // The contrast for the display (raw U8g2 value 80..200)
 bool g_unitsC = false;       // display unit: false = F, true = C (control logic is always F)
 uint16_t longPress = 1000;   // one second long press of button
-bool g_backlightOn = true;   // backlight state; toggled by a short press in the menus
+bool g_backlightOn = true;   // backlight state; toggled by a tap on the main menu Settings... entry
 uint8_t g_backlightLevel;    // backlight brightness level 0..10 (0 = off; Set backlight page)
 uint8_t g_previewLevel = 0;  // level previewed while the Set backlight page is open
 bool g_previewActive = false; // true while the Set backlight page previews g_previewLevel
@@ -463,7 +465,7 @@ void setup()
     pinMode(BACKLIGHT_PIN, OUTPUT); // GPIO15 is held LOW by its pull-down until here (boot strap)
     analogWriteRange(255);
     analogWriteFreq(BACKLIGHT_PWM_FREQ);
-    turnOnBacklight(); // backlight starts on at the saved level; a short press on the main menu toggles it
+    turnOnBacklight(); // backlight starts on at the saved level; a tap on the main menu Settings... entry toggles it
     g_lastActivityMs = millis();
     pinMode(HEATER_PIN, OUTPUT);
     pinMode(CLEANER_PIN, OUTPUT);
@@ -602,9 +604,21 @@ void loop()
     }
     else if (event == BUTTON_SHORT)
     {
-        // short press in the menus toggles the backlight;
-        // pages use short presses for their own purposes and leave it alone
-        toggleBacklight();
+        // short press (tap) on the main menu only: on Start it starts the timer, on the
+        // Settings... entry it toggles the backlight. Inside the Settings list a tap does
+        // nothing (long press opens items); pages use taps for their own purposes.
+        if (!inSettings)
+        {
+            if (g_currentMenu == MAIN_START)
+            {
+                debug("short press on Start...");
+                startTimerPage();
+            }
+            else if (g_currentMenu == MAIN_SETTINGS)
+            {
+                toggleBacklight();
+            }
+        }
     }
 }
 
