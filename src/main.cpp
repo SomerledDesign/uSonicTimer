@@ -41,8 +41,8 @@
  *                           F/C units, backlight 0 = off, contrast shown as 20-100
  *   0.6.1 (73) - 10/08/26 - blocky big-digit font; encoder acceleration in Set contrast;
  *                           a press saves in every settings page
- *   0.6.2 (74) - 10/29/26 - tap on Start starts the timer; tap toggles the backlight only
- *                           on the Settings... entry of the main menu
+ *   0.6.2 (74) - 10/29/26 - main menu: tap opens Start/Settings..., long press toggles the
+ *                           backlight; Settings list: tap or long press opens an item
  *
  * DISCLAIMER:
  *   With this design, including both the hardware & software I offer no guarantee that it is bug
@@ -258,7 +258,7 @@ uint8_t g_timerSetting;      // The timer to be set in minutes
 uint8_t g_contrast;          // The contrast for the display (raw U8g2 value 80..200)
 bool g_unitsC = false;       // display unit: false = F, true = C (control logic is always F)
 uint16_t longPress = 1000;   // one second long press of button
-bool g_backlightOn = true;   // backlight state; toggled by a tap on the main menu Settings... entry
+bool g_backlightOn = true;   // backlight state; toggled by a long press in the main menu
 uint8_t g_backlightLevel;    // backlight brightness level 0..10 (0 = off; Set backlight page)
 uint8_t g_previewLevel = 0;  // level previewed while the Set backlight page is open
 bool g_previewActive = false; // true while the Set backlight page previews g_previewLevel
@@ -465,7 +465,7 @@ void setup()
     pinMode(BACKLIGHT_PIN, OUTPUT); // GPIO15 is held LOW by its pull-down until here (boot strap)
     analogWriteRange(255);
     analogWriteFreq(BACKLIGHT_PWM_FREQ);
-    turnOnBacklight(); // backlight starts on at the saved level; a tap on the main menu Settings... entry toggles it
+    turnOnBacklight(); // backlight starts on at the saved level; a long press in the main menu toggles it
     g_lastActivityMs = millis();
     pinMode(HEATER_PIN, OUTPUT);
     pinMode(CLEANER_PIN, OUTPUT);
@@ -556,70 +556,58 @@ void loop()
         selected = (selected + count - 1) % count;
     }
 
-    // handle button events: long press opens the highlighted item
+    // handle button events
+    // main menu:     tap on Start starts the timer, tap on Settings... opens the Settings list,
+    //                long press on either toggles the backlight
+    // Settings list: tap or long press opens the highlighted item (Exit returns to the main menu)
+    // pages and run screens read the button themselves
     ////////////////////////////////////////////
-    if (event == BUTTON_LONG)
+    if (event == BUTTON_NONE)
     {
-        if (!inSettings)
-        {
-            switch (g_currentMenu)
-            {
-            case MAIN_START:
-                debug("long press on Start...");
-                startTimerPage();
-                break;
-            case MAIN_SETTINGS:
-                g_menuLevel = MENU_SETTINGS;
-                g_settingsItem = SETTINGS_TEMP;
-                break;
-            default:
-                break;
-            }
-        }
-        else
-        {
-            switch (g_settingsItem)
-            {
-            case SETTINGS_TEMP:
-                setTemperatureSubmenu();
-                break;
-            case SETTINGS_TIME:
-                setTimerSubmenu();
-                break;
-            case SETTINGS_UNITS:
-                setUnitsSubmenu();
-                break;
-            case SETTINGS_BACKLIGHT:
-                setBacklightSubmenu();
-                break;
-            case SETTINGS_CONTRAST:
-                adjustContrast();
-                break;
-            default: // SETTINGS_EXIT
-                g_menuLevel = MENU_MAIN;
-                break;
-            }
-        }
-        debugln("Loop complete.");
+        return;
     }
-    else if (event == BUTTON_SHORT)
+    if (!inSettings)
     {
-        // short press (tap) on the main menu only: on Start it starts the timer, on the
-        // Settings... entry it toggles the backlight. Inside the Settings list a tap does
-        // nothing (long press opens items); pages use taps for their own purposes.
-        if (!inSettings)
+        if (event == BUTTON_LONG)
         {
-            if (g_currentMenu == MAIN_START)
-            {
-                debug("short press on Start...");
-                startTimerPage();
-            }
-            else if (g_currentMenu == MAIN_SETTINGS)
-            {
-                toggleBacklight();
-            }
+            toggleBacklight();
+        }
+        else if (g_currentMenu == MAIN_START)
+        {
+            debug("tap on Start...");
+            startTimerPage();
+        }
+        else if (g_currentMenu == MAIN_SETTINGS)
+        {
+            g_menuLevel = MENU_SETTINGS;
+            g_settingsItem = SETTINGS_TEMP;
         }
     }
+    else
+    {
+        switch (g_settingsItem)
+        {
+        case SETTINGS_TEMP:
+            setTemperatureSubmenu();
+            break;
+        case SETTINGS_TIME:
+            setTimerSubmenu();
+            break;
+        case SETTINGS_UNITS:
+            setUnitsSubmenu();
+            break;
+        case SETTINGS_BACKLIGHT:
+            setBacklightSubmenu();
+            break;
+        case SETTINGS_CONTRAST:
+            adjustContrast();
+            break;
+        default: // SETTINGS_EXIT
+            g_menuLevel = MENU_MAIN;
+            break;
+        }
+    }
+    debugln("Loop complete.");
 }
 
 /**

@@ -17,7 +17,7 @@ The menu approach comes from the [educ8s.tv](https://www.youtube.com/@Educ8s)
 1. On power-up it loads the settings from EEPROM. If a value is unset or out of range it uses a
    default: 72 °F, 10 min, °F, contrast 52 (raw 128), backlight level 10. It then initialises the
    LCD, the DS18B20, the encoder and the button.
-2. It shows the main menu. You pick an item and a long press opens it.
+2. It shows the main menu. You pick an item and a tap (short press) opens it; a long press toggles the backlight.
 3. **Start** runs the cleaner for the set time and regulates the heater (the control logic always
    works in °F, with tenths; the screens show whole degrees in the chosen unit):
    - **Heating:** below set − 10 °F the **heater is ON**, the **cleaner is OFF** and the countdown
@@ -36,12 +36,12 @@ The menu approach comes from the [educ8s.tv](https://www.youtube.com/@Educ8s)
 ## Menu tree
 
 In the menus, rotating the encoder moves the reverse-video highlight (lists show 4 rows under the
-title bar and scroll; small arrows mark more items), a **long press** (> 1 s) enters the
-highlighted item. A **short press** (tap) on the main menu depends on the highlighted item: on
-**Start** it starts the timer, on **Settings...** it toggles the LCD backlight between off and the
-level set in **Set backlight**. Inside the Settings list a tap does nothing (long press opens an
-item), and no other screen toggles the backlight. The backlight is on at power-up.
-Its state is kept while you are in a page, because short presses inside the pages move the cursor
+title bar and scroll; small arrows mark more items). On the main menu a **short press** (tap) on
+**Start** starts the timer and a tap on **Settings...** opens the Settings list; a **long press**
+(> 1 s) on either toggles the LCD backlight between off and the level set in **Set backlight**.
+In the Settings list a tap or a long press opens the highlighted item (**Exit** returns to the
+main menu). The backlight is on at power-up.
+Its state is kept while you are in a page, because presses inside the pages move the cursor
 or confirm instead. After 5 minutes without input in the menu the backlight dims to about 20 %; the
 first turn or press then only wakes it. Every button press is handled exactly once, so a press never
 carries over into the next page.
@@ -149,8 +149,9 @@ Firmware versions are a semantic version plus a build number, shown as **`0.6.2 
 
 History:
 
-- **0.6.2 (74)**: a tap on **Start** starts the timer; a tap toggles the backlight only on the
-  main menu's **Settings...** entry, no longer in the Settings list or elsewhere.
+- **0.6.2 (74)**: new button mapping. Main menu: tap on **Start** starts the timer, tap on
+  **Settings...** opens the Settings list, long press on either toggles the backlight. Settings
+  list: tap or long press opens the highlighted item.
 - 0.6.1 (73): new big-digit font: blocky, squared-off 7-segment-style characters (4–5 px
   strokes, no diagonals, stepped slashed zero, colon of two 4x4 blocks) drawn from box lists in
   `include/bigfont.h`, closer to the reference clock than the scaled 5x7 font. Encoder
@@ -173,10 +174,10 @@ History:
 1. Wire the board as in the pin map, or use the rev 1d PCB. Put the DS18B20 on the bowl and
    connect the heater and cleaner through the SSRs.
 2. Build and flash as above, then power up. The main menu appears.
-3. Open **Settings...** and use **Set temp** to choose the target bowl temperature, **Set time**
+3. Tap **Settings...** to open it and use **Set temp** to choose the target bowl temperature, **Set time**
    to choose the run time, **Set units** for °F or °C, and **Set backlight** / **Set contrast** for
    the LCD if needed. Each setting is saved when you leave its page.
-4. Highlight **Start** and press (tap or long-press). The display shows the bowl temperature while it heats, then
+4. Highlight **Start** and tap (short press). The display shows the bowl temperature while it heats, then
    the time left while it cleans; the heater and cleaner are controlled automatically.
 5. Long-press at any time to stop. Both outputs switch off. When the time is up, DONE shows until
    you turn or press.
