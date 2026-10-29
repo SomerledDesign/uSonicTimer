@@ -137,6 +137,20 @@ pio device monitor -b 115200        # serial monitor (debug output)
   `$HOME/Library/Caches/PlatformIO/uSonicTimer/`, which keeps build output out of Dropbox. On a
   non-macOS machine, change these paths or remove them to use the default `.pio/` folder.
 
+### Uploading over the pogo pins (FTDI 3.3 V cable, no DTR)
+
+The programming cable (FTDI TTL-232R 3.3 V with LED) has no DTR line, so it can't put the ESP8266
+into flash mode by itself. Do it by hand:
+
+1. Short the sensor connector's data / 1-Wire line (GPIO0) to ground.
+2. Turn the uSonicTimer on, or off and back on, so it boots into the bootloader. Power it from a
+   5 V supply rather than mains, so no mains voltage is exposed on the bench.
+3. Place the pogo pins on the programming pads: GND (black), RTS (green), the cable's TXD (orange) to
+   the board's RX, and the cable's RXD (yellow) to the board's TX. Leave the cable's 5 V (red) and CTS (brown) unconnected.
+4. Upload from VS Code (PlatformIO Upload). The upload speed is 115200.
+
+Remove the GPIO0 short afterwards, then power-cycle the board to run the new firmware.
+
 ## Versioning
 
 Firmware versions are a semantic version plus a build number, shown as **`0.6.2 (74)`** (current).
